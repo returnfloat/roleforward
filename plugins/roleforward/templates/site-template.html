@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{NAME}} · {{SITE_ROLE}}</title>
+<meta name="description" content="{{DESCRIPTION}}">
+<meta name="author" content="{{NAME}}">
+<meta name="robots" content="index, follow">
+<link rel="canonical" href="{{URL}}">
+<meta property="og:type" content="profile">
+<meta property="og:site_name" content="{{DOMAIN}}">
+<meta property="og:title" content="{{NAME}} · {{SITE_ROLE}}">
+<meta property="og:description" content="{{HEADLINE}}. {{LOCATION}}.">
+<meta property="og:url" content="{{URL}}">
+<meta property="og:image" content="{{URL}}og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="{{NAME}}, {{HEADLINE}}">
+<meta property="profile:first_name" content="{{FIRST_NAME}}">
+<meta property="profile:last_name" content="{{LAST_NAME}}">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="{{NAME}} · {{SITE_ROLE}}">
+<meta name="twitter:description" content="{{HEADLINE}}. {{LOCATION}}.">
+<meta name="twitter:image" content="{{URL}}og-image.png">
+<meta name="theme-color" content="{{PRIMARY}}">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/icon-192.png" type="image/png" sizes="192x192">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<script type="application/ld+json">
+{{PROFILE_DATA}}
+</script>
+<style>
+/* PALETTE: the only line to change when switching color themes. */
+:root { --p-side: {{PRIMARY}}; --p-side-muted: #9fb2c8; --p-side-line: #24405f; --p-highlight: {{ACCENT}}; --p-accent: #1d5c96; --p-side-dark: #0c1a2b; --p-side-line-dark: #1c3150; --p-accent-dark: #7fb3e6; }
+
+:root {
+  --side: var(--p-side); --side-text: #eef2f6; --side-muted: var(--p-side-muted); --side-line: var(--p-side-line); --gold: var(--p-highlight);
+  --bg: #f3f5f8; --card: #ffffff; --text: #18212b; --muted: #5b6776; --line: #e1e6ec; --accent: var(--p-accent);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --side: var(--p-side-dark); --side-line: var(--p-side-line-dark); --bg: #0d1116; --card: #151b22; --text: #e3e9f0; --muted: #96a1ad; --line: #232c36; --accent: var(--p-accent-dark); }
+}
+:root[data-theme="dark"] { --side: var(--p-side-dark); --side-line: var(--p-side-line-dark); --bg: #0d1116; --card: #151b22; --text: #e3e9f0; --muted: #96a1ad; --line: #232c36; --accent: var(--p-accent-dark); }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.65 ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Helvetica, Arial, sans-serif; -webkit-font-smoothing: antialiased; }
+a { color: var(--accent); }
+.layout { display: grid; grid-template-columns: 360px 1fr; min-height: 100vh; }
+
+aside { background: var(--side); color: var(--side-text); padding: 48px 32px; position: sticky; top: 0; height: 100vh; overflow-y: auto; }
+aside h1 { font-size: 34px; line-height: 1.1; margin: 0 0 12px; letter-spacing: -0.5px; }
+aside .headline { color: var(--side-muted); font-size: 15px; margin: 0 0 6px; }
+aside .loc { color: var(--gold); font-size: 13px; letter-spacing: 1.2px; text-transform: uppercase; margin: 0 0 24px; }
+.actions { display: grid; gap: 8px; margin-bottom: 32px; }
+.actions a, .actions button { display: flex; align-items: center; justify-content: center; text-align: center; padding: 10px 14px; border-radius: 8px; font-family: inherit; font-weight: 600; font-size: 14.5px; line-height: 1.4; text-decoration: none; cursor: pointer; border: 1px solid var(--side-line); background: transparent; color: var(--side-text); }
+.actions .primary { background: var(--gold); border-color: var(--gold); color: var(--p-side); }
+.actions a:hover, .actions button:hover { border-color: var(--gold); }
+aside h2 { font-size: 11.5px; letter-spacing: 1.8px; text-transform: uppercase; color: var(--gold); margin: 0 0 14px; }
+aside .comp { margin-bottom: 18px; }
+aside .comp h3 { font-size: 13.5px; margin: 0 0 6px; color: var(--side-text); }
+aside .comp ul { margin: 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 5px; }
+aside .comp li { font-size: 12.5px; color: var(--side-muted); border: 1px solid var(--side-line); border-radius: 5px; padding: 1px 8px; }
+#theme { position: absolute; top: 16px; right: 16px; background: none; border: 1px solid var(--side-line); color: var(--side-muted); border-radius: 8px; width: 32px; height: 32px; cursor: pointer; }
+
+main { padding: 48px clamp(16px, 5vw, 64px); max-width: 920px; }
+main h2 { font-size: 12px; letter-spacing: 1.8px; text-transform: uppercase; color: var(--muted); margin: 0 0 16px; }
+main section { margin-bottom: 44px; }
+.summary p { font-size: 18px; margin: 0; }
+.job { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 22px 24px; margin-bottom: 16px; }
+.company { font-size: 19px; margin: 0 0 6px; }
+.role { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0 16px; margin-top: 4px; }
+.role .title { font-weight: 600; color: var(--accent); }
+.role .meta { color: var(--muted); font-size: 14px; }
+.job ul { margin: 10px 0 8px; padding-left: 18px; }
+.job li { margin-bottom: 8px; }
+.edu { list-style: none; margin: 0; padding: 0; background: var(--card); border: 1px solid var(--line); border-radius: 12px; }
+.edu li { padding: 14px 24px; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; }
+.edu li:last-child { border-bottom: 0; }
+.edu span { color: var(--muted); }
+footer { color: var(--muted); font-size: 13.5px; padding-bottom: 24px; }
+
+@media (max-width: 900px) {
+  .layout { grid-template-columns: 1fr; }
+  aside { position: relative; height: auto; padding: 40px 16px 28px; }
+  aside .comps { display: none; }
+  .actions { grid-template-columns: repeat(3, 1fr); }
+  main { padding: 32px 16px; }
+  .job { padding: 18px 16px; }
+}
+@media (max-width: 900px) { .mobile-comps { display: block; } }
+@media (min-width: 901px) { .mobile-comps { display: none; } }
+.mobile-comps .comp { margin-bottom: 14px; }
+.mobile-comps .comp h3 { font-size: 14px; margin: 0 0 6px; }
+.mobile-comps .comp ul { margin: 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 5px; }
+.mobile-comps .comp li { font-size: 13px; background: var(--card); border: 1px solid var(--line); border-radius: 5px; padding: 1px 8px; }
+</style>
+</head>
+<body>
+<div class="layout">
+  <aside>
+    <button id="theme" type="button" aria-label="Toggle color theme">◐</button>
+    <h1>{{NAME}}</h1>
+    <p class="headline">{{HEADLINE}}</p>
+    <p class="loc">{{LOCATION}}</p>
+    <div class="actions">
+      <a class="primary" href="{{PDF}}" download>Download Resume</a>
+      <a href="{{LINKEDIN}}" rel="me noopener">LinkedIn</a>
+      <a href="{{GITHUB}}" rel="me noopener">GitHub</a>
+      <button id="email" type="button"><span>Email</span></button>
+    </div>
+    <div class="comps"><h2>{{COMPETENCIES_TITLE}}</h2>{{COMPETENCIES}}</div>
+  </aside>
+  <main>
+    <section class="summary"><h2>About</h2>{{SUMMARY}}</section>
+    <section class="mobile-comps"><h2>{{COMPETENCIES_TITLE}}</h2>{{COMPETENCIES}}</section>
+    <section><h2>Experience</h2>{{EXPERIENCE}}</section>
+    {{EXTRA_SECTIONS}}
+    <section><h2>{{EDUCATION_TITLE}}</h2><ul class="edu">{{EDUCATION}}</ul></section>
+    <footer>© {{YEAR}} {{NAME}}</footer>
+  </main>
+</div>
+<script>
+(function () {
+  var root = document.documentElement, KEY = 'theme';
+  try { var saved = localStorage.getItem(KEY); if (saved) root.setAttribute('data-theme', saved); } catch (e) {}
+  document.getElementById('theme').addEventListener('click', function () {
+    var dark = root.getAttribute('data-theme') === 'dark' ||
+      (!root.getAttribute('data-theme') && matchMedia('(prefers-color-scheme: dark)').matches);
+    var next = dark ? 'light' : 'dark';
+    root.setAttribute('data-theme', next);
+    try { localStorage.setItem(KEY, next); } catch (e) {}
+  });
+  var codes = {{EMAIL_CODES}};
+  document.getElementById('email').addEventListener('click', function () {
+    var addr = codes.map(function (c) { return String.fromCharCode(c - 7); }).join('');
+    this.querySelector('span').textContent = addr;
+    window.location.href = 'mailto:' + addr;
+  });
+})();
+</script>
+</body>
+</html>

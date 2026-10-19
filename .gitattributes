@@ -1,0 +1,3 @@
+# Every text file keeps LF line endings in every checkout, Windows included, so the skills and templates read the same
+# everywhere. Git detects binary files (PDFs, images) on its own.
+* text=auto eol=lf

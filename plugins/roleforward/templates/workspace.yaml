@@ -1,0 +1,131 @@
+# Career workspace settings. The RoleForward plugin's scripts and skills read this file.
+# /onboard fills it in during onboarding. Edit by hand or ask Claude to change it.
+# Regex fragments are single-quoted so backslashes stay literal.
+
+workspace_version: <plugin version>   # the RoleForward version this workspace was last brought up to date with
+
+person:
+  name: <Full Name>
+  file_stem: <First-Last>          # output file names: <stem>-Resume.pdf, <stem>-Resume-Apply.pdf, <stem>-Resume.txt
+  pronouns:                        # optional, used when writing about the person
+
+files:
+  resume: resume.md                # the default resume (drives the application PDF, the website, and LinkedIn)
+  portfolio: portfolio.md          # the only source of facts
+  guide: resume-writing-guide.md   # house rules and audit rubric
+  direction: career-direction.md   # goals, constraints, Dealbreakers, and Preferences
+  linkedin: linkedin.md
+  memory: MEMORY.md
+  interview_prep: interview-prep.md
+
+targets:
+  field: <field, for example "SAP GRC and security consulting">
+  titles: [<target title>, <another target title>]   # quote any item with a comma: ["Director, SAP GRC", GRC Lead]
+  level_baseline: <current employer and title, for the level check>
+  level_track: <where to compare levels, for example "levels.fyi" or "published pay bands">
+  country: US                      # the one country you work in, as a two-letter code. Job feeds currently search the US
+  remote: true                     # true: remote roles anywhere in that country pass the place screen
+  places:                          # where you can go in person: at most 3, each with the nearby names postings use for it
+    "<City, Region>": [<nearby town>, <another nearby town>]
+  # visa:                           # optional: only for someone who needs an employer to sponsor a work visa
+  #   needs_sponsorship: true       # turns on the sponsorship screen and each employer's H-1B record (visa.mjs)
+  #   status: H-1B                  # the current status, for example H-1B, F-1 OPT, or STEM OPT
+  #   deadline: 2026-12-31          # optional: when the current status runs out, for a countdown in the scout and tracker
+  #   aliases:                      # other names a company files under, such as subsidiaries
+  #     <Company>: [<Subsidiary>]
+  # pay:                            # optional pay screening, its own setting (not a dealbreaker or preference), off unless asked for
+  #   min: 150000                   # yearly floor: a minimum, or current pay (hourly postings count at 2,080 hours). Only drops; never changes a score
+  #   drop_below: 10                # drop a posting only when the top of its range is more than this % below the floor
+  #   unlisted: keep                # keep or drop postings that publish no pay
+
+scout:
+  search_terms: [<term sent to searchable career sites>]
+  max_shortlist: 10                # postings shortlisted per run (10 by default): 3 to 5 for a few senior moves, 10 to 20 for a steady search
+  cadence: weekly                  # daily, twice-weekly, or weekly: how often to run the scout (early applicants get read first)
+  stale_days: 60                   # drop postings older than this; 21 to 30 suits fast-moving markets such as software
+  discover: []                     # sources for finding employers not on the watchlist, for example [hn] (Hacker News "Who is hiring?")
+  title_all:                       # a title must match every pattern in this list
+    - '<field keywords, for example "\bsap\b|\bgrc\b">'
+    - '<level keywords, for example "\b(manager|lead|senior|principal|architect|consultant)\b">'
+  title_none: '<titles to ignore, for example "\b(intern|sales|recruit\w*)\b">'
+  remote_words: 'remote|anywhere|distributed|virtual'   # words that mean a role is remote
+  # google_levels: [ADVANCED]      # Google's own level filter (leave out for all levels)
+
+apply:
+  depth: light                     # light: a short fit note per posting, full company research once an interview is scheduled
+                                   # full: fit analysis, company quick check, and full research before every application (the default when unset)
+
+tracker:
+  maturity_field: function_maturity   # company.md score for how mature the user's function is at a company
+
+theme:                              # two colors chosen during onboarding, used by the sheet and the website
+  primary: '#132a45'                # carries white text: headers and the site's sidebar
+  accent: '#d8b66a'                 # the highlight: rules and pills
+
+render:
+  # chrome: <path>                 # optional: Chrome, Chromium, Edge, or Brave is found on its own; set this only to pick another
+  max_pages: 2
+
+website:
+  enabled: false
+  # domain: example.com
+  # url: https://example.com/
+  # template: site/site-template.html   # leave out to use the plugin's template
+  # themes: site/themes
+  # site_role: <short role line for the browser tab, for example "SAP GRC Consultant">
+  # description: <one-sentence description for search results>
+  # job_title: <current title>
+  # location: <City, Region>             # shown on the page
+  # linkedin: https://www.linkedin.com/in/<handle>
+  # github: https://github.com/<handle>    # optional; adds a GitHub button, useful for engineers
+  # Optional details for search engines (structured data); each shows only when set:
+  # works_for: <current employer>
+  # alumni_of: [<school>, <another school>]
+  # knows_about: [<area of expertise>, <another area>]
+  # address_locality: <City>               # defaults to location
+  # address_region: <state or region code>
+  # address_country: <country code, for example US>
+  # initials: <XY>
+  # location_line: <CITY, REGION>
+
+linkedin:
+  enabled: true
+
+connections:                        # optional: LinkedIn connections at each company, from LinkedIn's data export
+  enabled: false                   # the connections skill turns it on, with the person's OK
+  refresh_days: 30                 # nudge for a fresh export when the import is older than this
+  # function_words: ['\bsap\b|\bgrc\b']   # regex for the person's own field; defaults to the first scout.title_all pattern
+  # aliases:                        # other names a company goes by; matches count both ways
+  #   <Company>: [<Brand>, "<Subsidiary, Inc.>"]
+
+sheet:
+  # spreadsheet_id:                 # set by the sheet skill when it creates the sheet
+  # title: <Name> Career Planning
+  # tabs:
+  #   Shortlist: 0
+  #   Scout Log: 4
+  #   History: 2
+  #   Stats: 5
+  #   Employers: 1
+  #   Career: 3
+  scout_log_days: 14               # the Scout Log tab shows postings that passed the first screen in this many days
+  history_days: 30                 # the History tab shows postings that ended in this many days
+
+schedule:                           # Claude Code Desktop scheduled tasks, each off until set up; see the scout skill's Scheduled Runs
+  scout:
+    enabled: false                  # true once the task is set up in Desktop (Desktop holds the live schedule)
+    every: weekly                   # daily, weekdays, weekly, or monthly
+    day: mon                        # weekly: mon to sun; monthly: 1 to 28
+    at: "07:00"
+  sheet:                            # pulls the user's edits from the sheet and syncs it
+    enabled: false
+    every: daily
+    at: "12:30"
+  discover:                         # proposes new employers (never adds them)
+    enabled: false
+    every: monthly
+    day: 3
+    at: "08:00"
+
+index:
+  title: Career Workspace Index

@@ -1,0 +1,11 @@
+{
+  "name": "roleforward",
+  "owner": { "name": "RoleForward contributors" },
+  "plugins": [
+    {
+      "name": "roleforward",
+      "source": "./plugins/roleforward",
+      "description": "Move your career forward, one role at a time: a sourced portfolio, reviewed resumes, a job scout, application tracking, and interview prep, adapted to any field."
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+name: New job source
+description: Ask RoleForward's scout to read a job system it doesn't support yet.
+labels: [job-source]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A job source is a job system many employers share (such as Greenhouse or Workday), not one employer. For one employer's site, first try the scout's `page` fallback with the site's job sitemap.
+  - type: input
+    id: system
+    attributes:
+      label: Job system
+      placeholder: "for example Phenom, Jobvite, or a government job board"
+    validations:
+      required: true
+  - type: textarea
+    id: examples
+    attributes:
+      label: Employers that use it
+      description: Two or three public careers page links.
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: What you know about it
+      description: A public API, a job sitemap, whether it blocks automated requests, or whether it needs a key.

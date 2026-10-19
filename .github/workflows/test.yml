@@ -1,0 +1,36 @@
+# Runs the test suite on demand: Actions tab, "test", Run workflow, then tick the systems to run on.
+# From a terminal: gh workflow run test.yml -f linux=true -f windows=true -f macos=false
+name: test
+on:
+  workflow_dispatch:
+    inputs:
+      linux:
+        description: Linux
+        type: boolean
+        default: true
+      windows:
+        description: Windows
+        type: boolean
+        default: true
+      macos:
+        description: macOS
+        type: boolean
+        default: false
+jobs:
+  linux:
+    if: inputs.linux
+    runs-on: ubuntu-latest
+    steps: &steps
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: node --test
+  windows:
+    if: inputs.windows
+    runs-on: windows-latest
+    steps: *steps
+  macos:
+    if: inputs.macos
+    runs-on: macos-latest
+    steps: *steps

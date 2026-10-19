@@ -1,0 +1,32 @@
+name: Bug report
+description: Something in RoleForward doesn't work as described.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please don't paste anything personal: no resume text, workspace files, LinkedIn data, or real names. Made-up examples are fine.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what you expected
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The skill or command you used, for example `/scout` or `node <tools>/scout.mjs validate`.
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Doctor output
+      description: Run `node <tools>/doctor.mjs` in your workspace and paste the result. Remove anything personal first.
+      render: text
+  - type: input
+    id: system
+    attributes:
+      label: RoleForward version and system
+      placeholder: "1.0.0, macOS 15, Node 22"
