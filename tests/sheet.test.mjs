@@ -129,3 +129,31 @@ test('prune archives postings that ended long ago without an application, and ke
     assert.match(ws.run('tracker'), /\(4 postings, 1 applied\)/, 'the archived posting still counts');
   } finally { ws.cleanup(); }
 });
+
+test('synced: a change made in the workspace since the last sync is never undone by the older sheet', async () => {
+  const { appendEvent, setLastEventNote } = await import('../plugins/roleforward/tools/frontmatter.mjs');
+  const ws = fresh();
+  try {
+    // The sheet as this sync wrote it.
+    const shortlist = rows(ws, 'shortlist'), history = rows(ws, 'history'), employers = rows(ws, 'employers');
+    assert.match(ws.run('sheet', ['synced']), /^Recorded this sync: \d+ Shortlist, \d+ History, and \d+ Employers rows\.$/m);
+    // Then, in the workspace: a stage moves on, a reason is rewritten, an employer is paused, and one is added.
+    appendEvent(join(ws.root, ws.folder('employer-a'), 'posting.md'), `${daysAgo(0)} | interested`, daysAgo(0));
+    setLastEventNote(join(ws.root, ws.folder('employer-d'), 'posting.md'), 'A newer reason', daysAgo(0));
+    ws.run('watchlist', ['pause', 'Employer C']);
+    ws.run('watchlist', ['add', 'Employer H', '--domain', 'Test Domain One', '--source', 'greenhouse', '--board', 'test-employer-h', '--why', 'Example reason']);
+    ws.run('tracker');
+    // The sheet hasn't changed, so none of that is an edit.
+    assert.match(ws.run('sheet', ['pull', values(ws, 's.json', shortlist), '--apply']), /^No status changes in the sheet\.$/m);
+    assert.match(ws.read(`${ws.folder('employer-a')}/posting.md`), /\| interested\n/);
+    assert.match(ws.run('sheet', ['pull-history', values(ws, 'h.json', history), '--apply']), /^No reason changes in the History tab\.$/m);
+    assert.match(ws.read(`${ws.folder('employer-d')}/posting.md`), /\| A newer reason\n/);
+    assert.match(ws.run('sheet', ['pull-employers', values(ws, 'e.json', employers), '--apply']), /^No changes in the Employers tab\.$/m);
+    const wl = ws.read('applications/watchlist.md');
+    assert.match(wl, /^\| ~Employer C \|/m, 'still paused');
+    assert.match(wl, /^\| Employer H \| greenhouse \|/m, 'not paused as a deleted row');
+    // A cell the user did change still counts.
+    const edited = shortlist.map((x) => (x[0] === 'Employer A' ? [x[0], x[1], 'passed', ...x.slice(3)] : x));
+    assert.match(ws.run('sheet', ['pull', values(ws, 's2.json', edited)]), /Employer A, Senior Data Engineer: interested -> passed/);
+  } finally { ws.cleanup(); }
+});

@@ -26,6 +26,7 @@ test('the default render writes the application PDF and .txt, and the website wi
     const site = ws.read('website/index.html');
     assert.doesNotMatch(site, /000-000-0000|candidate@example\.invalid/);
     assert.match(site, /Test Candidate/);
+    assert.match(site, /<div class="role"><span class="title">Senior Data Engineer<\/span><span class="meta"> · Example City, ST \(Hybrid\) · Jan 2022 to Present<\/span><\/div>/, 'one line of text per role');
     for (const f of ['Test-Candidate-Resume.pdf', 'favicon.svg', 'og-image.png', 'robots.txt', 'sitemap.xml', '404.html'])
       assert.ok(existsSync(join(ws.root, 'website', f)), f);
     assert.match(ws.read('website/sitemap.xml'), /<loc>https:\/\/example\.invalid\/<\/loc>/);

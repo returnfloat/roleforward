@@ -61,6 +61,10 @@ function parse(md) {
 const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const section = (r, title) => r.sections.find((s) => s.title === title);
 
+// A role's title, place, and dates as one line of text ("Title · Place · Dates"), so a resume parser or screen reader
+// reads them apart. Two spans laid out left and right extract as "Title Place", run together.
+const roleLine = (b) => `<div class="role"><span class="title">${esc(b.title)}</span><span class="meta"> · ${esc(b.meta)}</span></div>`;
+
 // ---------- print HTML (single column, ATS-friendly text PDF) ----------
 
 const isPhone = (c) => /^\+?[\d\s().-]{7,}$/.test(c);
@@ -74,7 +78,7 @@ function printHtml(r, { includePrivate }) {
       if (b.type === 'bullet' && !list) { out += '<ul>'; list = true; }
       if (b.type === 'p') out += `<p>${esc(b.text)}</p>`;
       if (b.type === 'company') out += `<h3>${esc(b.text)}</h3>`;
-      if (b.type === 'role') out += `<div class="role"><span class="title">${esc(b.title)}</span><span class="meta">${esc(b.meta)}</span></div>`;
+      if (b.type === 'role') out += roleLine(b);
       if (b.type === 'bullet') out += `<li>${b.label ? `<strong>${esc(b.label)}:</strong> ` : ''}${esc(b.text)}</li>`;
     }
     return out + (list ? '</ul>' : '');
@@ -84,14 +88,15 @@ function printHtml(r, { includePrivate }) {
 <style>
 @page { size: Letter; margin: 0.55in 0.65in; }
 * { box-sizing: border-box; }
-body { font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; font-size: 10pt; line-height: 1.38; color: #1a1a1a; margin: 0; }
+body { font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; font-size: 10pt; line-height: 1.38; color: #1a1a1a; margin: 0;
+  font-variant-ligatures: none; } /* a ligature is one glyph for "fi", which a resume parser can read as an unknown letter */
 h1 { font-size: 21pt; margin: 0 0 2pt; letter-spacing: 0.2pt; }
 .contact { color: #444; margin-bottom: 5pt; }
 .contact a { color: #0b4f6c; text-decoration: none; }
 .headline { font-weight: 600; color: #0b4f6c; margin-bottom: 4pt; }
 h2 { font-size: 11pt; text-transform: uppercase; letter-spacing: 0.8pt; color: #0b4f6c; border-bottom: 1px solid #b9c7cf; padding-bottom: 2pt; margin: 11pt 0 5pt; }
 h3 { font-size: 11pt; font-weight: 700; color: #1a1a1a; margin: 9pt 0 1.5pt; break-after: avoid; }
-.role { display: flex; justify-content: space-between; gap: 12pt; break-after: avoid; }
+.role { break-after: avoid; }
 .role .title { color: #0b4f6c; font-weight: 500; }
 .role .meta { color: #555; }
 p { margin: 0 0 4pt; }
@@ -156,7 +161,7 @@ function groupedHtml(blocks) {
     for (const b of j.items) {
       if (b.type !== 'bullet' && list) { html += '</ul>'; list = false; }
       if (b.type === 'bullet' && !list) { html += '<ul>'; list = true; }
-      if (b.type === 'role') html += `<div class="role"><span class="title">${esc(b.title)}</span><span class="meta">${esc(b.meta)}</span></div>`;
+      if (b.type === 'role') html += roleLine(b);
       if (b.type === 'p') html += `<p>${esc(b.text)}</p>`;
       if (b.type === 'bullet') html += `<li>${b.label ? `<strong>${esc(b.label)}:</strong> ` : ''}${esc(b.text)}</li>`;
     }

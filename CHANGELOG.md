@@ -2,6 +2,12 @@
 
 Every RoleForward release, newest first. RoleForward follows [semantic versioning](https://semver.org): within a major version, your workspace's settings and files keep working as they are.
 
+## 1.1.0
+
+- **ATS check (new):** `ats.mjs` reads a resume's PDF the way an applicant tracking system's parser does, then checks the posting's terms against it. The parsing checks cover the text layer, the contact line, section headings, characters a parser can mangle, and whether every line of the plain-text copy comes through as written. The keyword check takes required and preferred terms from a `keywords.md` in the posting folder, and prints each match with its context. `/apply` runs it before you apply, and suggests only changes your portfolio backs.
+- **Resume PDFs read cleanly to parsers:** each job's title, place, and dates are now one line of text ("Title · Place · Dates"); before, a parser read the title and place run together. Ligatures are off, so words such as "certified" no longer hold a single "fi" glyph a parser can misread. The website shows role lines the same way.
+- **Sheet sync keeps changes made in the workspace:** each sync records what it wrote, and the next sync counts a cell as your edit only when it differs from that record. Before, a stage, a reason, or a watchlist change made in the workspace since the last sync could be read as an edit in the sheet and undone.
+
 ## 1.0.0
 
 The first release.

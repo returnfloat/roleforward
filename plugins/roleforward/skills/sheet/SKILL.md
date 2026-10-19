@@ -51,7 +51,7 @@ Rows are matched by company name, so sorting or filtering the tab is safe. `node
 5. **Clear** the old data rows' values, not their formatting (`batch_clear_values` on `Shortlist!A2:O1000`, `'Scout Log'!A2:I1000`, `History!A2:N1000`, `Stats!A2:G1000`, and `Employers!A2:O1000`), so removed postings don't linger and the colors, banding, and dropdown stay.
 6. **Write** each tab's rows at `A2` with `update_values`.
 7. **Reset the dropdowns:** send `node <tools>/sheet.mjs dropdown` as one `update_spreadsheet` batch. It puts the Shortlist's Status dropdown and the Employers tab's Domain and Status dropdowns on filled rows only, so empty rows show no arrows. A row the user just typed gets its dropdowns at the next sync.
-8. **Read back** and confirm the values match.
+8. **Read back** and confirm the values match, then run `node <tools>/sheet.mjs synced`. It records what this sync wrote in `applications/data/sheet-sync.json`, and the next sync's pulls count a cell as the user's edit only when it differs from that record. A change made in the workspace between syncs (a stage, a reason, or a watchlist edit) is then never mistaken for an old value the user set in the sheet. Skip it when the read-back doesn't match, so the next pull compares with the workspace instead.
 
 **On a scheduled run** (the prompt says so, from a Desktop scheduled task): no one is watching. Pull and apply statuses, reasons, and employer edits as usual, but never use `--force`. A refused employer pull, a `[skipped]` row, or other hand edits (step 4) are left alone and listed in the report. Find feeds for added employers when `discover.mjs board` settles it, and leave the rest `manual`. End with a short report, which goes to the log.
 

@@ -100,6 +100,22 @@ export function loadWorkspace() {
   return { root, cfg, get: (path, fallback) => get(cfg, path, fallback) };
 }
 
+// Where render.mjs writes the PDF and .txt for a posting's `resume:` value (keep in step with its naming):
+//   tailored                the posting's own resume.md, rendered next to it
+//   <files.resume>          the default, rendered to output/ (the PDF with "-Apply", which has phone and email)
+//   variants/<name>.md      a standing variant, rendered to output/variants/
+// A frozen posting holds its own copy of what was sent, so those files are used instead.
+export function resumeFiles(root, get, resume, dir, frozen = false) {
+  const stem = get('person.file_stem') + '-Resume', DEFAULT = get('files.resume');
+  if (frozen) return { md: join(dir, 'resume.md'), pdf: join(dir, stem + '.pdf'), txt: join(dir, stem + '.txt') };
+  if (resume === 'tailored') return { md: join(dir, 'resume.md'), pdf: join(dir, stem + '.pdf'), txt: join(dir, stem + '.txt') };
+  if (resume === DEFAULT) return { md: join(root, resume), pdf: join(root, 'output', stem + '-Apply.pdf'), txt: join(root, 'output', stem + '.txt') };
+  const m = String(resume).match(/^variants\/([\w-]+)\.md$/);
+  if (!m) throw new Error(`posting.md resume: must be ${DEFAULT}, variants/<name>.md, or tailored (got "${resume}")`);
+  const base = join(root, 'output', 'variants', stem + '-' + m[1].replace(/(^|-)(\w)/g, (_, d, c) => d + c.toUpperCase()));
+  return { md: join(root, resume), pdf: base + '.pdf', txt: base + '.txt' };
+}
+
 // The workspace's two colors, chosen during onboarding: theme.primary carries white text (headers, the site's sidebar),
 // and theme.accent is the highlight (rules and pills). Used by the sheet, the website, and its share images.
 export const palette = (get) => ({

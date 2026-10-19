@@ -19,21 +19,12 @@ import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { dirname, join, resolve } from 'node:path';
 import { readFrontmatter, writeFrontmatter, parseEvent } from './frontmatter.mjs';
-import { loadWorkspace, PLUGIN, relPath } from './workspace.mjs';
+import { loadWorkspace, PLUGIN, relPath, resumeFiles } from './workspace.mjs';
 
 const { root, get } = loadWorkspace();
-const STEM = get('person.file_stem') + '-Resume', DEFAULT = get('files.resume');
+const STEM = get('person.file_stem') + '-Resume';
 const PDF = STEM + '.pdf', TXT = STEM + '.txt';
 const sha = (p) => createHash('sha256').update(readFileSync(p)).digest('hex');
-
-// Where render.mjs writes each resume's PDF and .txt (keep in step with its naming).
-function renderedPaths(resume, dir) {
-  if (resume === 'tailored') return { md: join(dir, 'resume.md'), stem: join(dir, STEM) };
-  if (resume === DEFAULT) return { md: join(root, resume), pdf: join(root, 'output', STEM + '-Apply.pdf'), txt: join(root, 'output', TXT) };
-  const m = resume.match(/^variants\/([\w-]+)\.md$/);
-  if (!m) throw new Error(`posting.md resume: must be ${DEFAULT}, variants/<name>.md, or tailored (got "${resume}")`);
-  return { md: join(root, resume), stem: join(root, 'output', 'variants', STEM + '-' + m[1].replace(/(^|-)(\w)/g, (_, d, c) => d + c.toUpperCase())) };
-}
 
 function freeze(dirArg, date = new Date().toLocaleDateString('en-CA')) {
   const dir = resolve(dirArg), posting = join(dir, 'posting.md');
@@ -42,8 +33,8 @@ function freeze(dirArg, date = new Date().toLocaleDateString('en-CA')) {
   const { data, body } = readFrontmatter(posting);
   if (data.frozen) throw new Error(`Already frozen on ${data.frozen}.`);
 
-  const src = renderedPaths(data.resume || '', dir);
-  const pdf = src.pdf ?? src.stem + '.pdf', txt = src.txt ?? src.stem + '.txt';
+  const src = resumeFiles(root, get, data.resume || '', dir);
+  const { pdf, txt } = src;
   for (const p of [src.md, pdf, txt]) if (!existsSync(p)) throw new Error(`Missing ${relPath(root, p)}. Render it first.`);
   if (statSync(pdf).mtimeMs < statSync(src.md).mtimeMs) throw new Error(`${relPath(root, pdf)} is older than ${relPath(root, src.md)}. Render it first.`);
 

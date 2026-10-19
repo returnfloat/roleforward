@@ -24,6 +24,9 @@
 //   node <plugin>/tools/sheet.mjs pull-history <values.json> [--apply]
 //                                                     reads History!A2:M values and saves each Reason the user typed as the
 //                                                     note on that posting's ending event
+//   node <plugin>/tools/sheet.mjs synced              records what this sync wrote (data/sheet-sync.json), after the read-back.
+//                                                     The pulls count a cell as the user's edit only when it differs from that
+//                                                     record, so a change made in the workspace since the last sync isn't undone
 //   node <plugin>/tools/sheet.mjs setup               batchUpdate requests that add and format every tab on a new sheet
 //   node <plugin>/tools/sheet.mjs prune [--apply]     archives postings that ended more than sheet.history_days ago without an
 //                                                     application: one line in data/archive.csv, and the folder is deleted
@@ -36,8 +39,8 @@
 // Rows are written with update_values. Dates carry a leading apostrophe so Sheets keeps them as text, fit scores
 // are numbers, and posting links are HYPERLINK formulas.
 
-import { existsSync, readdirSync, readFileSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { readCsv, writeCsv } from './csv.mjs';
 import { readFrontmatter, appendEvent, setLastEventNote, parseEvent } from './frontmatter.mjs';
 import { loadWorkspace, palette } from './workspace.mjs';
@@ -171,8 +174,25 @@ function record(r, i, idCol, problems) {
   return { id, path, data };
 }
 
+// What the last sync wrote, by Record ID (and employer name). A sheet cell that still holds it isn't an edit, even
+// when the workspace has moved on since. With no record yet, the pulls compare with the workspace as it is.
+const SNAPSHOT = join(root, 'applications', 'data', 'sheet-sync.json');
+const snapshot = () => (existsSync(SNAPSHOT) ? JSON.parse(readFileSync(SNAPSHOT, 'utf8')) : null);
+function synced() {
+  const idOf = (r) => r.at(-1);
+  const snap = {
+    at: today,
+    shortlist: Object.fromEntries(rows('shortlist').map((r) => [idOf(r), r[2]])),
+    history: Object.fromEntries(rows('history').map((r) => [idOf(r), r[4]])),
+    employers: Object.fromEntries(rows('employers').map((r) => [norm(r[0]), [r[1], r[2]]])),
+  };
+  mkdirSync(dirname(SNAPSHOT), { recursive: true });
+  writeFileSync(SNAPSHOT, JSON.stringify(snap, null, 1) + '\n');
+  console.log(`Recorded this sync: ${Object.keys(snap.shortlist).length} Shortlist, ${Object.keys(snap.history).length} History, and ${Object.keys(snap.employers).length} Employers rows.`);
+}
+
 function pull(file, apply) {
-  const changes = [], problems = [];
+  const changes = [], problems = [], snap = snapshot()?.shortlist;
   for (const [i, r] of readGrid(file).entries()) {
     const [company = '', role = '', status = ''] = r;
     if (!company && !role && !status) continue;
@@ -182,7 +202,7 @@ function pull(file, apply) {
     const where = `row ${i + 2} (${company}, ${role})`;
     const current = (data.events || []).map(parseEvent).at(-1)?.stage ?? 'shortlisted';
     const next = String(status).trim();
-    if (next === current) continue;
+    if (next === current || (snap && id in snap && snap[id] === next)) continue;
     if (!STAGES.includes(next)) { problems.push(`${where}: "${next}" isn't a stage. Skipped.`); continue; }
     const back = STAGES.indexOf(next) < STAGES.indexOf(current) && LIVE.includes(next);
     changes.push(`${company}, ${role}: ${current} -> ${next}${back ? ' (moves it back a stage)' : ''}`);
@@ -200,7 +220,7 @@ function pull(file, apply) {
 // History's Reason column is the user's to edit: a typed reason replaces the note on the posting's last event, which is
 // the ending that put it in History. Optional, for tuning the scout's screen.
 function pullHistory(file, apply) {
-  const changes = [], problems = [];
+  const changes = [], problems = [], snap = snapshot()?.history;
   for (const [i, r] of readGrid(file).entries()) {
     const [company = '', role = '', outcome = '', , reason = ''] = r;
     if (!company && !role) continue;
@@ -209,7 +229,7 @@ function pullHistory(file, apply) {
     const last = (rec.data.events || []).map(parseEvent).at(-1);
     if (!last || last.stage !== String(outcome).trim()) { problems.push(`row ${i + 2} (${company}, ${role}): its outcome isn't the record's latest stage. Skipped.`); continue; }
     const next = String(reason).trim();
-    if (next === last.note) continue;
+    if (next === last.note || (snap && rec.id in snap && snap[rec.id] === next)) continue;
     changes.push(`${company}, ${role}: "${last.note}" -> "${next}"`);
     if (apply) setLastEventNote(rec.path, next, today);
   }
@@ -229,7 +249,7 @@ function pullHistory(file, apply) {
 // Research-only rows (not watched, and not on the watchlist) need nothing. More than a quarter of the list paused or removed
 // at once is refused without --force, and so is an empty read, so a bad read can't wipe the watchlist.
 function pullEmployers(file, apply, force) {
-  const w = readWatchlist(), problems = [], sheet = new Map();
+  const w = readWatchlist(), problems = [], sheet = new Map(), snap = snapshot()?.employers;
   if (w.missing) { console.log('No applications/watchlist.md in this workspace. Nothing to pull.'); return; }
   for (const [i, r] of readGrid(file).entries()) {
     const [name = '', domain = '', status = ''] = r.map((x) => String(x ?? '').trim());
@@ -237,6 +257,8 @@ function pullEmployers(file, apply, force) {
     if (sheet.has(norm(name))) { problems.push(`row ${i + 2} (${name}): listed twice. Kept the first.`); continue; }
     // A row with a status that isn't one of the four is left exactly as it is (not treated as deleted).
     if (status && !EMPLOYER_STATUSES.includes(status)) { problems.push(`row ${i + 2} (${name}): "${status}" isn't a status. Left as it was.`); sheet.set(norm(name), { name, keep: true }); continue; }
+    // Unchanged since the last sync: not an edit, even if the watchlist has changed since.
+    if (snap?.[norm(name)] && snap[norm(name)][0] === domain && snap[norm(name)][1] === (status || 'watching')) { sheet.set(norm(name), { name, keep: true }); continue; }
     sheet.set(norm(name), { name, domain, status: status || 'watching', row: i + 2 });
   }
   if (!sheet.size) { console.log('The Employers tab read back empty, so nothing was changed. Check the range and try again.'); return; }
@@ -256,7 +278,8 @@ function pullEmployers(file, apply, force) {
     else if (status === 'watching' && r.source === 'manual') problems.push(`row ${row} (${name}): no feed yet, so it stays manual until one is found.`);
     else if (status === 'manual' && r.source !== 'manual' && !r.paused) problems.push(`row ${row} (${name}): it has a ${r.source} feed, so it stays watching. Pause it to stop it.`);
   }
-  for (const r of w.rows) if (!sheet.has(norm(r.company))) (r.paused ? removes : pauses).push(r);
+  // A deleted row: only an employer the last sync wrote can have been deleted. One added since isn't in the sheet yet.
+  for (const r of w.rows) if (!sheet.has(norm(r.company)) && (!snap || norm(r.company) in snap)) (r.paused ? removes : pauses).push(r);
 
   const out = [
     ...adds.map((r) => `  add     ${r.company}${r.domain ? ` (${r.domain})` : ''}${r.paused ? ', paused' : ''}: manual until its feed is found`),
@@ -421,6 +444,7 @@ else if (cmd === 'headers') console.log(JSON.stringify([TABS[tabKey(arg)]?.heade
 else if (cmd === 'pull') pull(arg, flag === '--apply');
 else if (cmd === 'pull-employers') pullEmployers(arg, process.argv.includes('--apply'), process.argv.includes('--force'));
 else if (cmd === 'pull-history') pullHistory(arg, flag === '--apply');
+else if (cmd === 'synced') synced();
 else if (cmd === 'setup') console.log(JSON.stringify(setup()));
 else if (cmd === 'prune') prune(arg === '--apply');
 else if (cmd === 'add-tab') console.log(JSON.stringify(addTab(tabKey(arg), flag)));

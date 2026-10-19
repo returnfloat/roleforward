@@ -49,7 +49,7 @@ The skills also appear as `/roleforward:scout`, `/roleforward:apply`, and so on.
 - **One source of facts:** a portfolio, built with you during onboarding from your old resume, LinkedIn export, or reviews and a short interview. Every number in it carries a source tag (verified, from a document, self-reported, or secondhand) and a scope tag (your own work, a team you led, or an organization-wide result), and its disclosure rules say what must stay private, such as internal project or client names. No number reaches a resume unless it's in the portfolio.
 - **A reviewed default resume,** drafted with you and checked against a house style guide and audit rubric. Every bullet is proven by a number when there's an honest one, and by concrete evidence (scale, adoption, what shipped) when there isn't. Nothing is estimated to fill a formula.
 - **Sections that fit your field:** a Summary or none, Core Competencies or Skills, and Projects, Publications, or Open Source sections, which appear in the PDF, the plain-text copy, and the website.
-- **Rendering:** an application PDF (with phone and email), a plain-text copy for pasting into application forms, and a page-count check.
+- **Rendering:** an application PDF (with phone and email), a plain-text copy for pasting into application forms, and a page-count check. The PDF is built for resume parsers: one column of real text, each job's title, place, and dates on one line, and no ligatures (single glyphs for letter pairs such as "fi", which a parser can misread).
 - **Standing variants,** such as leadership and technical versions, kept in step with the default when facts change.
 - **LinkedIn copy** in first person, kept consistent with the resume.
 - **One change, everywhere:** a fact or wording change goes to the resume, portfolio, LinkedIn copy, variants, website, and sheet in one pass.
@@ -78,6 +78,7 @@ The skills also appear as `/roleforward:scout`, `/roleforward:apply`, and so on.
 - **Fit analysis** against your record, with a level check that compares the posting's title to your current level (on levels.fyi where it covers your field, or the company's own ladder and published pay bands). It ends with a recommendation: apply, ask the recruiter first, or pass.
 - **Company research** in two passes, with every claim cited: a quick check (stability, how mature your function is there, why the role is open), then full research from primary sources. At full depth both come before you apply, and at light depth they come when an interview is scheduled.
 - **Resume choice:** reuse the default or a standing variant first. A tailored resume needs a written reason and your OK.
+- **ATS check:** before you apply, the resume's PDF is read the way an applicant tracking system's parser reads it, and checked against the posting's required and preferred terms. You see what a parser would misread, each term found with its context, and each one missing. Only missing terms your portfolio truthfully backs are suggested as changes.
 - **Form answers** drafted from your record and the company research. Salary questions are left for you. If you ask, it can fill the form in Chrome, but Submit is never clicked for you.
 - **Freezing:** once you say you've applied, the exact resume and answers you sent are kept, with file hashes, so you quote what you actually sent in interviews.
 - **Applied somewhere else?** Say so ("I applied to Acme through Easy Apply"), and one command logs it, with the resume you sent, so your stats stay complete.
@@ -96,6 +97,8 @@ A Google Sheet that mirrors your search, in two colors you choose during onboard
 - **Career:** your roles, with dates and durations.
 
 Every tab can be sorted and filtered from its header row. A sort lasts until the next sync, which puts rows back in the default order, and your filters stay.
+
+Edits go both ways safely: each sync records what it wrote, so only a cell you actually changed counts as your edit, and a change made in the workspace since the last sync is never undone by an older value in the sheet.
 
 The two windows are settings in `workspace.yaml`: `scout_log_days` (14) for the Scout Log, and `history_days` (30) for History. When a posting you never applied to leaves History, its folder is removed from your workspace too, so files don't pile up, and one line in an archive file keeps it in your stats. The scout keeps one line per posting it has screened, so it never shows you the same posting twice.
 
