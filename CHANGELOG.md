@@ -2,6 +2,10 @@
 
 Every RoleForward release, newest first. RoleForward follows [semantic versioning](https://semver.org): within a major version, your workspace's settings and files keep working as they are.
 
+## 1.2.0
+
+- **A Drive folder (optional):** the tracking sheet can live in a Google Drive folder, with an Archive folder inside it. On request, the folder holds Google Docs to read in a browser or on a phone: your interview prep, and a packet for any posting you're interested in or have applied to (the fit analysis, the company's bottom line and interview questions, your form answers without voluntary self-identification, the posting's prep plan, and the text of the resume you sent). Docs are made only when you ask, through Drive's Markdown import. A fresh copy replaces the old one, a packet moves to Archive when its posting ends, and the sheet links each packet from its posting's role. `docs.mjs` builds them.
+
 ## 1.1.0
 
 - **ATS check (new):** `ats.mjs` reads a resume's PDF the way an applicant tracking system's parser does, then checks the posting's terms against it. The parsing checks cover the text layer, the contact line, section headings, characters a parser can mangle, and whether every line of the plain-text copy comes through as written. The keyword check takes required and preferred terms from a `keywords.md` in the posting folder, and prints each match with its context. `/apply` runs it before you apply, and suggests only changes your portfolio backs.

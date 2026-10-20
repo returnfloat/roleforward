@@ -51,6 +51,7 @@ export const SCHEMA = {
   linkedin: { enabled: 'boolean' },
   connections: { enabled: 'boolean', refresh_days: 'number', function_words: 'patterns', aliases: 'map' },
   sheet: { spreadsheet_id: 'string', title: 'string', tabs: 'map', scout_log_days: 'number', history_days: 'number' },
+  drive: { enabled: 'boolean', folder_id: 'string', archive_id: 'string' },
   schedule: { scout: JOB, sheet: JOB, discover: JOB },
   index: { title: 'string', core: 'map', files: 'list' },
 };

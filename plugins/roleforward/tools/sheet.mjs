@@ -97,12 +97,20 @@ const text = (d) => (d ? `'${d}` : '');
 const link = (url) => (url ? `=HYPERLINK("${url}","View posting")` : '');
 const num = (v) => (v === '' || v === undefined ? '' : +v);
 
+// With the Drive folder on, a posting's role links to its packet Doc, when the user has asked for one (docs.mjs).
+// The cell still reads as the role, so the pulls match it as before.
+function roleCell(r) {
+  const f = join(root, 'applications', 'data', 'drive.json');
+  const doc = get('drive.enabled', false) === true && existsSync(f) ? JSON.parse(readFileSync(f, 'utf8')).docs?.[r.id]?.doc : null;
+  return doc ? `=HYPERLINK("https://docs.google.com/document/d/${doc}/edit","${r.role.replace(/"/g, '""')}")` : r.role;
+}
+
 function rows(tab) {
   const apps = readCsv(join(root, 'applications', 'data', 'applications.csv'));
   if (tab === 'shortlist') {
     return apps.filter((r) => LIVE.includes(r.status))
       .sort(rankCompare)
-      .map((r) => [r.company, r.role, r.status, num(r.role_fit), num(r.preference_fit), text(r.last_event), text(r.applied), r.track, r.resume, r.source, r.status === 'shortlisted' ? '' : r.referral, r.why, contactsCell(r.company), link(r.posting), r.id]);
+      .map((r) => [r.company, roleCell(r), r.status, num(r.role_fit), num(r.preference_fit), text(r.last_event), text(r.applied), r.track, r.resume, r.source, r.status === 'shortlisted' ? '' : r.referral, r.why, contactsCell(r.company), link(r.posting), r.id]);
   }
   if (tab === 'scoutlog') {
     // A rolling window: postings first seen in the last LOG_DAYS days. Older ones drop off at the next sync.
@@ -118,7 +126,7 @@ function rows(tab) {
     // which stays for good. Older ones are archived by prune (see below).
     const cutoff = daysAgo(HISTORY_DAYS);
     return apps.filter((r) => ENDED.includes(r.status) && !r.archived && (r.applied || r.last_event >= cutoff)).sort((a, b) => b.last_event.localeCompare(a.last_event))
-      .map((r) => [r.company, r.role, r.status, text(r.last_event), lastNote(r.id), num(r.role_fit), num(r.preference_fit), text(r.applied), r.source, r.resume, r.why, contactsCell(r.company), link(r.posting), r.id]);
+      .map((r) => [r.company, roleCell(r), r.status, text(r.last_event), lastNote(r.id), num(r.role_fit), num(r.preference_fit), text(r.applied), r.source, r.resume, r.why, contactsCell(r.company), link(r.posting), r.id]);
   }
   if (tab === 'stats') {
     const f = join(root, 'applications', 'data', 'stats.json');

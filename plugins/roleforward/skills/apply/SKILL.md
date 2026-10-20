@@ -112,7 +112,7 @@ Freeze only on the user's explicit word that the application is submitted. Never
 
 1. Confirm the folder, the resume that was sent, and the applied date (default today) in one line.
 2. Run `node <tools>/freeze.mjs applications/<company>/<folder> [YYYY-MM-DD]`. For a reused resume, it copies the current PDF, .txt, and Markdown into the folder as the record of what went out. In all cases it adds the `applied` event, records sha256 hashes, makes the sent files plus answers.md and jd.md read-only, and rebuilds the tracker. It refuses if the PDF is older than its source.
-3. Report that it's frozen, and mention anything in the tracker's Needs Attention list.
+3. Report that it's frozen, and mention anything in the tracker's Needs Attention list. With the Drive folder on (`drive.enabled`), say the user can drag the sent PDF (give its path) into their Drive folder, and offer the posting's packet as a Google Doc (the `sheet` skill's Drive Folder and Docs section).
 
 After freezing, never edit those files. A later need, such as a recruiter asking for an updated copy, gets a new event and, if a new resume is sent, a new posting folder. `node <tools>/freeze.mjs --check` confirms nothing frozen has changed. Run it before an interview so the user quotes exactly what they sent.
 

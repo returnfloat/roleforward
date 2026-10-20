@@ -1,6 +1,6 @@
 ---
 name: sheet
-description: Creates and syncs the workspace owner's Google Sheet, a browser view of their job search and career record with Shortlist, Scout Log, History, Stats, Employers, and Career tabs. Use after any change to application records or the watchlist (the apply and scout skills call for it), when the user says they changed a status or the employer list in the sheet, when they ask to set up, fix, restyle, or check their tracking sheet, or when a role fact changes and the Career tab needs updating.
+description: Creates and syncs the workspace owner's Google Sheet, a browser view of their job search and career record with Shortlist, Scout Log, History, Stats, Employers, and Career tabs. Use after any change to application records or the watchlist (the apply and scout skills call for it), when the user says they changed a status or the employer list in the sheet, when they ask to set up, fix, restyle, or check their tracking sheet, when a role fact changes and the Career tab needs updating, or when they want a posting's packet or their interview prep as a Google Doc in their Drive folder.
 ---
 
 # Tracking Sheet
@@ -74,6 +74,19 @@ Rows are matched by company name, so sorting or filtering the tab is safe. `node
    - A sort-and-filter header on every tab, covering every column.
 4. **Write** each tab's header row, then sync.
 5. **Save** `sheet.spreadsheet_id`, `sheet.title`, and `sheet.tabs` to `workspace.yaml`, and give the user the link.
+
+## Drive Folder and Docs (optional, on request)
+
+With `drive.enabled` true in `workspace.yaml`, the sheet lives in a Google Drive folder, "<person.name> Career", with an Archive folder inside it. On request, the folder also holds a few Google Docs, so the user can read them in a browser or on a phone: **Interview Prep** (the workspace's prep file) and a **packet** for any posting they're interested in or have applied to. A packet holds the fit analysis, the company's bottom line and interview questions, the form answers (without voluntary self-identification, which stays in the workspace), the posting's prep plan, and, once frozen, the text of the resume that was sent.
+
+A Doc is made only when the user asks ("put the Intuit packet in Drive"), never by a sync, because each Doc passes through the conversation in full (about 12,000 tokens for a typical packet). Say so the first time in a session.
+
+- **Set up the folder** (once, when the module is turned on): create the folder with Drive `create_file` (mime type `application/vnd.google-apps.folder`), the Archive folder inside it, and move the sheet in with `update_file` (`parentId`). Save `drive.folder_id` and `drive.archive_id` in `workspace.yaml`.
+- **Make a Doc:** run `node <tools>/docs.mjs list` for the keys (`prep`, or a posting's Record ID). Run `node <tools>/docs.mjs markdown <key>`: its first line is the title, and the rest is the content. Upload the content with Drive `create_file`: `contentMimeType: "text/markdown"`, `textContent` set to the content, the title, and `parentId` set to `drive.folder_id`. Drive converts it into a Google Doc. Then run `node <tools>/docs.mjs record <key> --doc <id>`.
+- **A fresh copy replaces the old one.** The connectors can't replace a Doc's content, so an update is a new Doc. `record` prints the previous copy's ID: trash it with Drive `trash_file` (Google keeps it in the trash for 30 days). This is the one deletion the plugin makes, and only of a Doc it made, so say it in one line when it happens.
+- **At each sync,** run `node <tools>/docs.mjs list`. A Doc whose posting has ended moves to the Archive folder (`update_file` with `parentId` set to `drive.archive_id`, then `docs.mjs record <key> --archived`), which costs nothing. A Doc marked "the workspace has changed since" isn't remade: mention it once, and remake it only if the user asks.
+- **The sheet links to each packet:** with a packet made, the posting's Role cell on Shortlist and History links to it (`sheet.mjs rows` writes the link).
+- **The sent resume PDF:** the connectors can't upload a PDF practically, since the whole file would pass through the conversation. When a posting is frozen, tell the user they can drag its PDF into the folder themselves, and give its path.
 
 ## Lessons Already Learned
 

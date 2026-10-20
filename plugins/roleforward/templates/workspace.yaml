@@ -111,6 +111,11 @@ sheet:
   scout_log_days: 14               # the Scout Log tab shows postings that passed the first screen in this many days
   history_days: 30                 # the History tab shows postings that ended in this many days
 
+drive:                              # a Google Drive folder with the sheet and a few Docs (off unless turned on in /onboard)
+  enabled: false                    # Interview Prep, and one packet per application from "interested" until it ends
+  # folder_id:                      # set by the sheet skill when it creates the folder
+  # archive_id:                     # its Archive folder, where packets go when a posting ends
+
 schedule:                           # Claude Code Desktop scheduled tasks, each off until set up; see the scout skill's Scheduled Runs
   scout:
     enabled: false                  # true once the task is set up in Desktop (Desktop holds the live schedule)

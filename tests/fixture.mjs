@@ -11,6 +11,7 @@
 //
 // Options: { website: true } turns the website module on, with example.invalid addresses. { pay: { min, drop_below, unlisted } }
 // sets a pay floor. { visa: true } and { connections: true } turn those modules on, each with one placeholder alias.
+// { drive: true } turns on the Google Drive folder's Docs.
 
 import { execFileSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
@@ -28,7 +29,7 @@ export const daysAgo = (n) => new Date(Date.now() - n * 864e5).toLocaleDateStrin
 const TEMPLATE_COPIES = ['CLAUDE.md', 'MEMORY.md', 'resume-writing-guide.md', 'linkedin.md', 'interview-prep.md', 'variants/README.md',
   'applications/README.md', 'applications/profile.md', 'applications/posting-template.md', 'applications/company-template.md'];
 
-const workspaceYaml = ({ website, pay, visa, connections }) => `workspace_version: ${VERSION}
+const workspaceYaml = ({ website, pay, visa, connections, drive }) => `workspace_version: ${VERSION}
 
 person:
   name: Test Candidate
@@ -106,6 +107,9 @@ ${connections ? `  aliases:
 sheet:
   scout_log_days: 14
   history_days: 30
+
+drive:
+  enabled: ${drive ? 'true' : 'false'}
 
 index:
   title: Career Workspace Index
@@ -350,14 +354,14 @@ const seenRows = () => [
 ];
 const csvCell = (v) => (/[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v));
 
-export function buildWorkspace({ dir, website = false, pay = null, visa = false, connections = false } = {}) {
+export function buildWorkspace({ dir, website = false, pay = null, visa = false, connections = false, drive = false } = {}) {
   // The real path, as the tools resolve it (macOS's temp folder sits behind a symlink).
   const root = dir ? resolve(dir) : realpathSync(mkdtempSync(join(tmpdir(), 'roleforward-test-')));
   if (existsSync(root) && readdirSync(root).length) throw new Error(`${root} isn't empty. Pick an empty or new folder.`);
   const write = (rel, text) => { mkdirSync(dirname(join(root, rel)), { recursive: true }); writeFileSync(join(root, rel), text); };
 
   for (const f of TEMPLATE_COPIES) { mkdirSync(dirname(join(root, f)), { recursive: true }); copyFileSync(join(PLUGIN, 'templates', f), join(root, f)); }
-  write('workspace.yaml', workspaceYaml({ website, pay, visa, connections }));
+  write('workspace.yaml', workspaceYaml({ website, pay, visa, connections, drive }));
   write('resume.md', resumeMd);
   write('portfolio.md', portfolioMd);
   write('career-direction.md', directionMd);

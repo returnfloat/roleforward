@@ -98,6 +98,8 @@ A Google Sheet that mirrors your search, in two colors you choose during onboard
 
 Every tab can be sorted and filtered from its header row. A sort lasts until the next sync, which puts rows back in the default order, and your filters stay.
 
+**A Drive folder (optional):** the sheet can live in a Google Drive folder of its own. Ask for a posting's packet (its fit analysis, the company's bottom line and interview questions, your form answers, and its prep plan) or your interview prep, and it appears there as a Google Doc to read in a browser or on your phone, and the sheet links each packet from its posting. Docs are made only when you ask, since each one passes through Claude in full (about 12,000 tokens for a typical packet). A fresh copy replaces the old one, and a posting's packet moves to an Archive folder when the posting ends. Voluntary self-identification answers never leave your workspace.
+
 Edits go both ways safely: each sync records what it wrote, so only a cell you actually changed counts as your edit, and a change made in the workspace since the last sync is never undone by an older value in the sheet.
 
 The two windows are settings in `workspace.yaml`: `scout_log_days` (14) for the Scout Log, and `history_days` (30) for History. When a posting you never applied to leaves History, its folder is removed from your workspace too, so files don't pile up, and one line in an archive file keeps it in your stats. The scout keeps one line per posting it has screened, so it never shows you the same posting twice.
@@ -192,7 +194,7 @@ Your career workspace is a folder on your computer, and everything RoleForward w
 - **Employers' career sites:** the scout requests public job listings and job pages from the employers on your watchlist. Nothing is submitted, and it never signs in.
 - **Hacker News** (optional discovery): the monthly "Who is hiring?" thread, through its public API.
 - **USCIS** (optional visa module): the public H-1B Employer Data Hub files, downloaded once.
-- **Your own Google Sheet** (optional): written through the Google connectors you connect to Claude.
+- **Your own Google Sheet and Drive folder** (optional): written through the Google connectors you connect to Claude. Docs appear in the folder only when you ask for one.
 - **Your website host** (optional): only when you choose to publish your site.
 
 **What stays private:**

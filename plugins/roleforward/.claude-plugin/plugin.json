@@ -1,6 +1,6 @@
 {
   "name": "roleforward",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "RoleForward moves your career forward, one role at a time. A private career workspace for Claude Code: a sourced portfolio, resumes and variants, LinkedIn copy, a weekly job scout across employer career sites, application tracking with a Google Sheet, company research, interview prep, an optional check of your LinkedIn connections for referral paths, and an optional personal website. Adapts to any field through each person's settings.",
   "license": "MIT",
   "keywords": [
