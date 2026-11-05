@@ -19,6 +19,24 @@ test('pay ranges in the usual formats', () => {
   assert.deepEqual(parsePay('$150,000 – $190,000'), { min: 150000, max: 190000 });
 });
 
+test('ranges written as "between X and Y"', () => {
+  assert.deepEqual(parsePay('The annual base salary is between $272,000 USD and $408,000 USD, plus equity.'), { min: 272000, max: 408000 });
+  assert.deepEqual(parsePay('between $150,000 and $190,000 a year'), { min: 150000, max: 190000 });
+  assert.deepEqual(parsePay('between 150,000 USD and 190,000 USD'), { min: 150000, max: 190000 });
+  assert.deepEqual(parsePay('between $150K and $200K'), { min: 150000, max: 200000 });
+});
+
+test('a range in another currency next to a US range is left out', () => {
+  const text = 'US roles: between $272,000 USD and $408,000 USD. Canada roles: between $254,000 CAD and $381,000 CAD.';
+  assert.deepEqual(parsePay(text), { min: 272000, max: 408000 });
+});
+
+test('"between X and Y" without a $ or USD is not pay', () => {
+  assert.equal(parsePay('serving between 500K and 900K customers'), null);
+  assert.equal(parsePay('teams of between 10 and 20 engineers'), null);
+  assert.equal(parsePay('between 2020 and 2024'), null);
+});
+
 test('several ranges merge into the widest, from any of the texts', () => {
   assert.deepEqual(parsePay('Zone A: $150,000 - $180,000', 'Zone B: $165,000 - $210,000'), { min: 150000, max: 210000 });
 });

@@ -2,6 +2,10 @@
 
 Every RoleForward release, newest first. RoleForward follows [semantic versioning](https://semver.org): within a major version, your workspace's settings and files keep working as they are.
 
+## 1.2.1
+
+- **Pay written as "between $X and $Y" is read:** a posting that gave its range as "between $272,000 USD and $408,000 USD" showed as "Pay: not published", so a pay floor could drop it (with `unlisted: drop`) or miss that it pays too little. A range in another currency beside it, such as CAD, is still left out, and "between X and Y" without a $ or USD isn't taken for pay.
+
 ## 1.2.0
 
 - **A Drive folder (optional):** the tracking sheet can live in a Google Drive folder, with an Archive folder inside it. On request, the folder holds Google Docs to read in a browser or on a phone: your interview prep, and a packet for any posting you're interested in or have applied to (the fit analysis, the company's bottom line and interview questions, your form answers without voluntary self-identification, the posting's prep plan, and the text of the resume you sent). Docs are made only when you ask, through Drive's Markdown import. A fresh copy replaces the old one, a packet moves to Archive when its posting ends, and the sheet links each packet from its posting's role. `docs.mjs` builds them.

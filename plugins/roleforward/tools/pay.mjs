@@ -14,7 +14,8 @@ export const PAY_UNLISTED = String(PAY?.unlisted ?? 'keep').toLowerCase() === 'd
 export const DROP_BELOW = PAY?.drop_below === undefined || PAY?.drop_below === '' ? 10 : Math.max(0, +PAY.drop_below || 0);
 export const PAY_ON = !!PAY && PAY_MIN > 0;
 
-// The widest yearly range in a pay line or description: "$212,000 - $265,000", "272,000 USD - 431,250 USD", "$150K-$200K".
+// The widest yearly range in a pay line or description: "$212,000 - $265,000", "272,000 USD - 431,250 USD", "$150K-$200K",
+// "between $272,000 USD and $408,000 USD".
 // Hourly ranges ("$90.08 - $127.17/hour", "$61.41 to $79.45 Hourly") count at HOURS_A_YEAR hours, and are kept as
 // `hourly` too, so the check line can show what was posted. Several ranges (pay zones, levels) are merged.
 export const HOURS_A_YEAR = 2080;
@@ -24,8 +25,10 @@ export function parsePay(...texts) {
   const amt = (n, k) => { const v = +String(n).replace(/,/g, '') * (/k/i.test(k ?? '') ? 1000 : 1); return v >= 1000 ? v : NaN; };
   const found = [], hourly = [];
   for (const t of texts.filter(Boolean).map(String)) {
-    for (const m of t.matchAll(/\$?\s?(\d{2,3}(?:,\d{3})+|\d{2,3}(?:\.\d)?)\s*([kK])?\s*(?:USD)?\s*(?:-|–|—|to)\s*\$?\s?(\d{2,3}(?:,\d{3})+|\d{2,3}(?:\.\d)?)\s*([kK])?/g)) {
-      const lo = amt(m[1], m[2] || m[4]), hi = amt(m[3], m[4]);
+    // "between $X and $Y" counts only with a $ or USD in the match, so prose such as "between 500K and 900K users" doesn't.
+    for (const m of t.matchAll(/\$?\s?(\d{2,3}(?:,\d{3})+|\d{2,3}(?:\.\d)?)\s*([kK])?\s*(?:USD)?\s*(-|–|—|to|\band\b)\s*\$?\s?(\d{2,3}(?:,\d{3})+|\d{2,3}(?:\.\d)?)\s*([kK])?/g)) {
+      if (m[3] === 'and' && !/\$|USD/.test(m[0])) continue;
+      const lo = amt(m[1], m[2] || m[5]), hi = amt(m[4], m[5]);
       if (lo >= 10000 && hi >= lo && hi < 5e6) found.push([lo, hi]);
     }
     // Hourly: both ends carry a dollar sign, and "an hour", "/hr", or "hourly" sits right next to the range.
