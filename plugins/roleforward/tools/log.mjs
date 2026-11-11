@@ -11,16 +11,15 @@
 //   an older application. --resume other (an older or outside file) records the application without a snapshot.
 // - It refuses if the same company and role already has a record. Add an event to that one instead.
 
-import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
-import { readFrontmatter, writeFrontmatter } from './frontmatter.mjs';
+import { writeFrontmatter } from './frontmatter.mjs';
 import { loadWorkspace, PLUGIN, relPath } from './workspace.mjs';
+import { SOURCES, newRecordDir } from './records.mjs';
 
 const { root, get } = loadWorkspace();
-const apps = join(root, 'applications');
 const fail = (msg) => { console.error(msg); process.exit(1); };
-const SOURCES = ['scout', 'recruiter-inbound', 'referral', 'linkedin', 'company-site', 'job-board', 'network'];
 
 const args = process.argv.slice(2), opts = {}, pos = [];
 for (let i = 0; i < args.length; i++) {
@@ -41,25 +40,9 @@ if (resume !== 'other' && resume !== get('files.resume') && !/^variants\/[\w-]+\
   fail(`--resume must be ${get('files.resume')}, variants/<name>.md, or other`);
 if (resume !== 'other' && !existsSync(join(root, resume))) fail(`No ${resume} in the workspace.`);
 
-const slug = (s) => s.toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/&/g, ' and ')
-  .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60).replace(/-+$/, '');
-const same = (a, b) => String(a ?? '').trim().toLowerCase() === String(b ?? '').trim().toLowerCase();
-
-// Reuse the folder of a company already in the workspace, and refuse a duplicate record.
-let companyDir = slug(company);
-if (existsSync(apps))
-  for (const c of readdirSync(apps, { withFileTypes: true }).filter((d) => d.isDirectory() && d.name !== 'data'))
-    for (const p of readdirSync(join(apps, c.name), { withFileTypes: true }).filter((d) => d.isDirectory())) {
-      const file = join(apps, c.name, p.name, 'posting.md');
-      if (!existsSync(file)) continue;
-      const { data } = readFrontmatter(file);
-      if (!same(data.company, company)) continue;
-      companyDir = c.name; company = data.company;   // keep the spelling already on record
-      if (same(data.role, role)) fail(`${relPath(root, file)} already records this role. Add an event to it instead.`);
-    }
-
-const dir = join(apps, companyDir, `${date}-${slug(role)}`);
-if (existsSync(dir)) fail(`${relPath(root, dir)} already exists.`);
+// Reuse the folder of a company already in the workspace (and its spelling on record), and refuse a duplicate record.
+let dir;
+try { ({ dir, company } = newRecordDir(root, company, role, date)); } catch (e) { fail(e.message); }
 mkdirSync(dir, { recursive: true });
 const data = {
   title: `${company}: ${role}`, company, role, track: '', level: '', work_mode: opts['work-mode'] || '', location: opts.location || '',

@@ -20,17 +20,20 @@
 //   Interview Prep    the workspace's interview prep file (files.interview_prep)
 //   a packet          for a posting the user is interested in or has applied to: the fit analysis, the company's
 //                     bottom line and interview questions, the form answers (without voluntary self-identification),
-//                     the posting's prep plan, and, once frozen, the text of the resume that was sent
+//                     the posting's prep plan, and, once frozen, the text of the resume that was sent. Never offer.md:
+//                     an offer's terms stay in the workspace
 
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { readFrontmatter, parseEvent } from './frontmatter.mjs';
+import { readFrontmatter } from './frontmatter.mjs';
 import { loadWorkspace, resumeFiles } from './workspace.mjs';
+import { LIVE as STAGES_LIVE, stageOf } from './records.mjs';
 
 const { root, get } = loadWorkspace();
 const DATA = join(root, 'applications', 'data', 'drive.json');
-const LIVE = ['interested', 'applied', 'recruiter-screen', 'hiring-manager', 'interviews', 'final', 'offer'];
+// A packet is for a posting the user is interested in or further along, never one only shortlisted.
+const LIVE = STAGES_LIVE.filter((s) => s !== 'shortlisted');
 const today = new Date().toLocaleDateString('en-CA');
 
 const load = () => (existsSync(DATA) ? JSON.parse(readFileSync(DATA, 'utf8')) : { docs: {} });
@@ -55,7 +58,6 @@ function postings() {
   }
   return out;
 }
-const stageOf = (data) => (data.events || []).map(parseEvent).sort((a, b) => a.date.localeCompare(b.date)).at(-1)?.stage ?? 'shortlisted';
 
 // The parts of company.md worth having at hand: the verdict, the full research's bottom line and table (or the quick
 // check's), and the questions to ask. The evidence and sources stay in the workspace.

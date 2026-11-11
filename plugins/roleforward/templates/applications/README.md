@@ -16,13 +16,17 @@ applications/
   profile.md                         reusable form answers
   company-template.md                company research template (quick check, then full research)
   posting-template.md                posting record and fit analysis template
+  lead-template.md                   a lead without a job posting (lead.md)
+  offer-template.md                  an offer's terms, promises, comparison, and negotiation plan (offer.md)
   <company-slug>/
     company.md                       company research (business, moat, stability, the team the role sits in), shared by its postings
     <YYYY-MM-DD>-<role-slug>/         date = when the posting was shortlisted, or brought in by the user
       posting.md                     the record (frontmatter) + fit analysis + tailoring log
       jd.md                          plain-text copy of the job description, captured at first look
+      lead.md                        for a lead with no posting: what's known, who said it, what's unknown, questions to ask
       answers.md                     what was typed into the online form, as submitted
       resume.md, <stem>-Resume.pdf/.txt   what was sent (a snapshot copied at freeze, or the tailored one)
+      offer.md                       once an offer arrives: its terms, what was promised, the comparison, the negotiation plan
 ```
 
 The posting.md frontmatter is the only source of truth. The tracker and CSVs are rebuilt from it with the plugin's `tools/tracker.mjs`, and are never edited by hand.
@@ -57,8 +61,11 @@ events:                                 # "YYYY-MM-DD | stage | optional note", 
   - 2026-10-04 | interested
   - 2026-10-05 | applied
   - 2026-10-12 | recruiter-screen | 30 min with the recruiter
+next: 2026-10-19 | Check back if the recruiter is still quiet   # optional: "YYYY-MM-DD | what happens next"
 updated: 2026-10-12
 ```
+
+`next` is the posting's next action: the date is when to act or check back, and the text says what happens then, for example `2026-11-14 | Reply to the recruiter about the phone screen`. Set and clear it with the plugin's `tools/next.mjs`, which changes only that line and `updated`. It belongs to live postings: once a posting ends, any `next` left on it is ignored.
 
 The plugin's `tools/freeze.mjs` adds `frozen:` and `frozen_files:` (sha256 hashes) when the application is submitted. Don't edit those by hand.
 
@@ -66,7 +73,8 @@ The plugin's `tools/freeze.mjs` adds `frozen:` and `frozen_files:` (sha256 hashe
 
 The current status is always the latest event, so there is no separate status field to keep in step.
 
-- **Pipeline, in order:** `shortlisted`, `interested`, `applied`, `recruiter-screen`, `hiring-manager`, `interviews`, `final`, `offer`, `accepted`.
+- **Pipeline, in order:** `shortlisted`, `interested`, `conversation`, `applied`, `recruiter-screen`, `hiring-manager`, `interviews`, `final`, `offer`, `accepted`.
+- **`conversation`** means the user is talking with someone at the employer (a recruiter, a hiring manager, a contact) about a role, before any formal application. From there a record goes to `applied`, or straight to a later stage. One that skips `applied` counts as applied from its first stage past it.
 - **Endings:** `expired` (the posting closed before the user decided), `passed` (the user chose not to apply), `rejected`, `withdrawn`, `no-response` (log it after a follow-up goes unanswered), `declined-offer`.
 
 ## The Queue
@@ -81,9 +89,15 @@ Postings reach the user through a light lifecycle, so the workspace only holds w
 | passed or expired | the user, or the posting closing | `jd.md` is deleted, and posting.md stays so the stats count it |
 | archived | `sheet.mjs prune`, once a posting that never reached an application ended more than `sheet.history_days` (30) days ago | The folder is deleted. One line in `data/archive.csv` keeps it in the stats. Anything that reached an application is never archived |
 
-A posting the user brings in themselves (a link, or a recruiter message) starts at `interested`. The watchlist of employers `/scout` checks is `watchlist.md`.
+A posting the user brings in themselves (a link, or a recruiter message with one) starts at `interested`. A lead with no posting (a role a recruiter wrote about, or one a contact described) starts at `conversation`, or `interested` if no one is talking yet, with `lead.md` in place of `jd.md` (the plugin's `tools/lead.mjs` makes both files). When a formal job description arrives, `jd.md` is captured as usual and `lead.md` stays. The watchlist of employers `/scout` checks is `watchlist.md`.
 
-Any event after `applied` other than `withdrawn` or `no-response` counts as a response. A rejection is still a response. The tracker flags anything active with no event for 21 days.
+Any event after `applied` other than `withdrawn` or `no-response` counts as a response. A rejection is still a response, and a `conversation` never is.
+
+The tracker's Needs Attention list shows:
+- next actions that are overdue or due within 3 days, in date order
+- applications and conversations with no event for 21 days, unless a `next` dated today or later says the user is waiting on purpose
+- shortlisted and interested postings with no `next`, marked as waiting on the user's decision once they've sat for 7 days
+- a posting at `offer` with no `offer.md`
 
 ## Company Research (company.md)
 

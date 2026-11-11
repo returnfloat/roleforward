@@ -21,6 +21,7 @@ preference_fit:
 why: ""
 events:
   - YYYY-MM-DD | shortlisted
+next:
 updated: YYYY-MM-DD
 ---
 

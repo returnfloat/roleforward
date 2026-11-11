@@ -23,6 +23,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readFrontmatter, writeFrontmatter, parseEvent } from './frontmatter.mjs';
 import { loadWorkspace, relPath } from './workspace.mjs';
+import { LIVE } from './records.mjs';
 
 const { root, get } = loadWorkspace();
 export const MAX_PREFERENCES = 5;
@@ -30,7 +31,6 @@ export const MAX_PREFERENCES = 5;
 // which errs toward showing more. Staleness, pay, and sponsorship are settings in workspace.yaml, not dealbreakers.
 export const MAX_DEALBREAKERS = 5;
 const WEIGHTS = { high: 3, medium: 2, low: 1 };
-const LIVE = ['shortlisted', 'interested', 'applied', 'recruiter-screen', 'hiring-manager', 'interviews', 'final', 'offer'];
 const today = new Date().toLocaleDateString('en-CA');
 export const slug = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 

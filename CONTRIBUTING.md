@@ -30,7 +30,7 @@ A source is one kind of job system that many employers share, such as Greenhouse
 
 1. **Read the live site first.** Fetch one real listing and one real job, and note the structure: field names, paging, totals, date formats, and what a job that no longer exists returns (a 404, an empty result, a redirect). Request a job ID that doesn't exist to see it.
 2. **In `plugins/roleforward/tools/scout.mjs`:** a fetcher in `FEEDS` (search sources stop at a fixed number of the newest postings), a branch in `detail()` for `show` and `capture`, and the closure check in `checkTarget()` and `postingState()`.
-3. **Elsewhere:** the source name in the doctor's `SOURCES` (`tools/doctor.mjs`), the source table in the scout skill, the watchlist template's source list, and the README's list of supported job systems.
+3. **Elsewhere:** the source name in the doctor's `SOURCES` (`tools/doctor.mjs`), the source table in the scout skill's `feeds.md`, the watchlist template's source list, and the README's list of supported job systems.
 4. **Tests:** a synthetic response in `tests/feed-responses.mjs` that copies the live structure with every value a placeholder, an employer for it in `WATCHLIST`, and its "gone" answer. Then run `node --test`.
 5. **Live check:** add one real employer to a scratch workspace's watchlist and run `node <plugin>/tools/scout.mjs validate`.
 

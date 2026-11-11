@@ -65,8 +65,8 @@ test('the sheet shows connections in the Contacts column once imported', () => {
     ws.run('connections', ['import', csv]);
     ws.run('tracker');
     const rows = JSON.parse(ws.run('sheet', ['rows', 'shortlist']));
-    assert.equal(rows.find((r) => r[0] === 'Employer A')[12], '3: Test Contact One (Senior Data Engineer); Test Contact Two (Technical Recruiter); Test Contact Three (Product Manager)');
-    assert.equal(rows.find((r) => r[0] === 'Employer B')[12], '1: Test Contact Five (Staff Data Engineer)');
+    assert.equal(rows.find((r) => r[0] === 'Employer A')[13], '3: Test Contact One (Senior Data Engineer); Test Contact Two (Technical Recruiter); Test Contact Three (Product Manager)');
+    assert.equal(rows.find((r) => r[0] === 'Employer B')[13], '1: Test Contact Five (Staff Data Engineer)');
   } finally { ws.cleanup(); }
 });
 

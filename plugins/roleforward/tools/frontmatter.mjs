@@ -33,7 +33,8 @@ export function readFrontmatter(path) {
   return { data, body: m ? md.slice(m[0].length) : md };
 }
 
-const scalar = (v) => (/: |^[\s"'#&*!|>%@`[{-]|\s$/.test(String(v)) ? JSON.stringify(String(v)) : String(v));
+// Quoted when YAML would misread it: ": " anywhere, " #" (a comment), a leading indicator character, or edge spaces.
+const scalar = (v) => (/: |\s#|^[\s"'#&*!|>%@`[{-]|\s$/.test(String(v)) ? JSON.stringify(String(v)) : String(v));
 
 export function writeFrontmatter(path, data, body) {
   const lines = Object.entries(data).map(([k, v]) =>
@@ -72,6 +73,27 @@ export function setLastEventNote(path, note, date) {
   lines[end - 1] = `  - ${scalar([d, stage, note].filter(Boolean).join(' | '))}`;
   const u = lines.findIndex((l) => /^updated:/.test(l));
   if (u >= 0) lines[u] = `updated: ${date}`; else lines.push(`updated: ${date}`);
+  writeFileSync(path, `---\n${lines.join('\n')}\n---\n${md.slice(m[0].length)}`);
+}
+
+// Sets one top-level field (for example next) and updated, editing the text in place so every other line stays exactly
+// as written. An empty value leaves the key with nothing after it. A missing field is added after the events list, or
+// before updated.
+export function setField(path, key, value, date) {
+  const md = readText(path);
+  const m = md.match(FM);
+  if (!m) throw new Error(`${path}: no frontmatter`);
+  const lines = m[1].split('\n');
+  const line = value === '' ? `${key}:` : `${key}: ${scalar(value)}`;
+  const at = lines.findIndex((l) => new RegExp(`^${key}:`).test(l));
+  if (at >= 0) { let end = at + 1; while (end < lines.length && /^  /.test(lines[end])) end++; lines.splice(at, end - at, line); }
+  else {
+    const ev = lines.findIndex((l) => /^events:\s*$/.test(l));
+    let pos = lines.findIndex((l) => /^updated:/.test(l));
+    if (ev >= 0) { pos = ev + 1; while (pos < lines.length && /^  - /.test(lines[pos])) pos++; }
+    lines.splice(pos < 0 ? lines.length : pos, 0, line);
+  }
+  if (key !== 'updated') { const u = lines.findIndex((l) => /^updated:/.test(l)); if (u >= 0) lines[u] = `updated: ${date}`; else lines.push(`updated: ${date}`); }
   writeFileSync(path, `---\n${lines.join('\n')}\n---\n${md.slice(m[0].length)}`);
 }
 

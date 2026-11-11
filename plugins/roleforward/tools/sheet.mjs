@@ -14,24 +14,41 @@
 //                                                     counts and research scores (by domain, then company)
 //   node <plugin>/tools/sheet.mjs add-tab <tab> [index]   batchUpdate requests that add one formatted tab to an existing sheet
 //   node <plugin>/tools/sheet.mjs headers <tab>       the header row for a tab (shortlist, scoutlog, history, employers, career)
-//   node <plugin>/tools/sheet.mjs pull <values.json> [--apply]
-//                                                     reads Shortlist!A2:O values (as returned by get_values) and logs each
-//                                                     Status the user changed with the dropdown as an event in that posting.md.
-//                                                     Without --apply it only prints what it would do.
-//   node <plugin>/tools/sheet.mjs pull-employers <values.json> [--apply] [--force]
-//                                                     reads Employers!A2:O values and brings the user's edits (new rows, Domain,
-//                                                     Status, deleted rows) into applications/watchlist.md
-//   node <plugin>/tools/sheet.mjs pull-history <values.json> [--apply]
-//                                                     reads History!A2:M values and saves each Reason the user typed as the
-//                                                     note on that posting's ending event
+//   node <plugin>/tools/sheet.mjs ranges [--full]    the ranges each pull reads: only the columns it needs (the header row,
+//                                                     the columns that identify a row, and the ones the user may edit).
+//                                                     --full: whole tabs, for checking the sheet for other hand edits
+//   node <plugin>/tools/sheet.mjs pull <values.json>... [--apply]
+//                                                     reads the Shortlist's values (each file a get_values response for one
+//                                                     of the ranges above, with its range, or the whole tab from A1, header
+//                                                     row included), and logs each Status the user changed with the dropdown
+//                                                     as an event in that posting.md. Without --apply it only prints what it
+//                                                     would do. It refuses a header row that isn't this version's layout
+//   node <plugin>/tools/sheet.mjs upgrade <header.json> [--rules <n>]
+//                                                     batchUpdate requests that bring an existing sheet's Shortlist to this
+//                                                     version's layout, from its header row (Shortlist!A1:P1): the Next column
+//                                                     after Last event, its header and format, and the tab's conditional
+//                                                     formats and filter reset (--rules: how many conditional format rules the
+//                                                     Shortlist has now, from get_spreadsheet). [] when it's already current
+//   node <plugin>/tools/sheet.mjs pull-employers <values.json>... [--apply] [--force]
+//                                                     reads the Employers tab's values (its ranges above, or the whole tab from
+//                                                     A2) and brings the user's edits (new rows, Domain, Status, deleted rows)
+//                                                     into applications/watchlist.md
+//   node <plugin>/tools/sheet.mjs pull-history <values.json>... [--apply]
+//                                                     reads the History tab's values (its ranges above, or the whole tab from
+//                                                     A2) and saves each Reason the user typed as the note on that posting's
+//                                                     ending event
+//   node <plugin>/tools/sheet.mjs changed [--all] [tab...]
+//                                                     which tabs differ from what the last sync wrote, so a sync clears, writes,
+//                                                     and reads back only those. --all, or naming tabs, counts them as changed
 //   node <plugin>/tools/sheet.mjs synced              records what this sync wrote (data/sheet-sync.json), after the read-back.
 //                                                     The pulls count a cell as the user's edit only when it differs from that
 //                                                     record, so a change made in the workspace since the last sync isn't undone
 //   node <plugin>/tools/sheet.mjs setup               batchUpdate requests that add and format every tab on a new sheet
 //   node <plugin>/tools/sheet.mjs prune [--apply]     archives postings that ended more than sheet.history_days ago without an
 //                                                     application: one line in data/archive.csv, and the folder is deleted
-//   node <plugin>/tools/sheet.mjs dropdown          batchUpdate requests that put the dropdowns on filled rows only (the
-//                                                     Shortlist's Status, and the Employers tab's Domain and Status)
+//   node <plugin>/tools/sheet.mjs dropdown [tab...]  batchUpdate requests that put the dropdowns on filled rows only (the
+//                                                     Shortlist's Status, and the Employers tab's Domain and Status), for the
+//                                                     named tabs (shortlist, employers), or both
 //   node <plugin>/tools/sheet.mjs filters [tab...]   batchUpdate requests that put a sort-and-filter header over every column of
 //                                                     the named tabs (all tabs if none). Resets any filter choices on them
 //   node <plugin>/tools/sheet.mjs career-formula <row>   the Duration formula for a Career row
@@ -40,9 +57,11 @@
 // are numbers, and posting links are HYPERLINK formulas.
 
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { readCsv, writeCsv } from './csv.mjs';
 import { readFrontmatter, appendEvent, setLastEventNote, parseEvent } from './frontmatter.mjs';
+import { LIVE, ENDED } from './records.mjs';
 import { loadWorkspace, palette } from './workspace.mjs';
 import { cell as contactsCell, freshness, norm } from './connections.mjs';
 import { readWatchlist, writeWatchlist, find, statusOf } from './watchlist.mjs';
@@ -52,8 +71,6 @@ const { root, get } = loadWorkspace();
 const PALETTE = palette(get);
 const MATURITY = get('tracker.maturity_field', 'function_maturity');
 const maturityLabel = MATURITY.replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase());
-const LIVE = ['shortlisted', 'interested', 'applied', 'recruiter-screen', 'hiring-manager', 'interviews', 'final', 'offer'];
-const ENDED = ['expired', 'passed', 'rejected', 'withdrawn', 'no-response', 'declined-offer', 'accepted'];
 // Every stage the Shortlist's Status dropdown offers, in the order a posting moves through them.
 const STAGES = [...LIVE, 'accepted', 'passed', 'withdrawn', 'rejected', 'no-response', 'declined-offer', 'expired'];
 const LOG_DAYS = +get('sheet.scout_log_days', 14) || 14;
@@ -70,12 +87,13 @@ export const TABS = {
   // optional connections module), and stays empty when the module is off.
   // Referral stays blank while a posting is only shortlisted: it's asked when the user marks it interested.
   // Role fit and Preference fit are the two scores from fit.mjs, never blended. Rows sort by the lower of the two first.
-  shortlist: { id: 0, title: 'Shortlist', headers: ['Company', 'Role', 'Status', 'Role fit', 'Preference fit', 'Last event', 'Applied', 'Track', 'Resume', 'Source', 'Referral', "Why it's here", 'Contacts', 'Posting', 'Record ID'],
-    widths: [240, 220, 140, 80, 100, 100, 100, 100, 120, 150, 80, 420, 300, 120, 200], center: [2, 3, 4, 5, 6, 10], wrap: [1, 11, 12], status: 2, scores: [3, 4], muted: [14] },
+  // Next is the posting's next action (date and what happens), for display: it's set in the workspace with next.mjs.
+  shortlist: { id: 0, title: 'Shortlist', headers: ['Company', 'Role', 'Status', 'Role fit', 'Preference fit', 'Last event', 'Next', 'Applied', 'Track', 'Resume', 'Source', 'Referral', "Why it's here", 'Contacts', 'Posting', 'Record ID'],
+    widths: [240, 220, 140, 80, 100, 100, 260, 100, 100, 120, 150, 80, 420, 300, 120, 200], center: [2, 3, 4, 5, 7, 11], wrap: [1, 6, 12, 13], status: 2, scores: [3, 4], muted: [15], next: 6 },
   scoutlog: { id: 4, title: 'Scout Log', headers: ['Company', 'Role', 'Location', 'Posted', 'First seen', 'Last seen', 'Scout call', 'Reason', 'Posting'],
     widths: [200, 280, 200, 100, 100, 100, 110, 420, 120], center: [3, 4, 5, 6], wrap: [1, 2, 7], call: 6 },
   history: { id: 2, title: 'History', headers: ['Company', 'Role', 'Outcome', 'Ended', 'Reason', 'Role fit', 'Preference fit', 'Applied', 'Source', 'Resume', 'Why it was here', 'Contacts', 'Posting', 'Record ID'],
-    widths: [240, 220, 120, 100, 300, 80, 100, 100, 140, 120, 380, 300, 120, 200], center: [2, 3, 5, 6, 7], wrap: [1, 4, 10, 11], outcome: 2, scores: [5, 6], muted: [13] },
+    widths: [240, 220, 120, 100, 300, 80, 100, 100, 140, 120, 380, 300, 120, 200], center: [2, 3, 5, 6, 7], wrap: [1, 4, 10, 11], outcome: 2, reason: 4, scores: [5, 6], muted: [13] },
   // The tracker's numbers as one table: Summary, Funnel, then one block per breakdown. Section names repeat on every row so
   // the tab can be filtered. Columns C to G hold whatever the section measures.
   stats: { id: 5, title: 'Stats', headers: ['Section', 'Item', 'Count or applied', 'Got a response', 'Reached interviews', 'Median days to response', 'Share'],
@@ -89,9 +107,43 @@ export const TABS = {
   career: { id: 3, title: 'Career', headers: ['Employer', 'Title', 'Start', 'End', 'Duration', 'Location', 'Work mode', 'Track', 'Type', 'Scope'],
     widths: [220, 260, 95, 95, 85, 130, 95, 100, 95, 520], center: [2, 3, 4, 6, 7, 8], wrap: [1, 9], dates: [2, 3] },
 };
+// The Shortlist's header row before the Next column, so an existing sheet can be recognized and brought up to date.
+const SHORTLIST_BEFORE_NEXT = TABS.shortlist.headers.filter((h) => h !== 'Next');
 const ALIAS = { 'scout-log': 'scoutlog', watchlist: 'employers' };
 export const EMPLOYER_STATUSES = ['watching', 'manual', 'paused', 'not watched'];
 const tabKey = (t) => ALIAS[t] ?? t;
+// The tabs the sync writes from the workspace. Career is kept by hand, from the resume.
+const GENERATED = ['shortlist', 'scoutlog', 'history', 'stats', 'employers'];
+
+// ---- Ranges ----
+// Column letters, and A1 ranges, with the tab's name quoted when it has a space ('Scout Log'!A2:I1000).
+const R = 1000;
+const col = (i) => (i >= 26 ? col(Math.floor(i / 26) - 1) : '') + String.fromCharCode(65 + (i % 26));
+const colIndex = (letters) => [...letters.toUpperCase()].reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0) - 1;
+const a1 = (t, c0, c1, r0, r1) => `${/\s/.test(t.title) ? `'${t.title}'` : t.title}!${col(c0)}${r0}:${col(c1)}${r1}`;
+const dataRange = (t, n = R - 1) => a1(t, 0, t.headers.length - 1, 2, 1 + Math.max(n, 1));
+// The columns each pull reads: the ones that identify a row (company and role, checked against the Record ID, or the
+// company name on the Employers tab) and the ones the user may edit (Status, Reason, Domain). History's Outcome is read
+// too, since a reason is saved only on the record's latest stage. The Shortlist's header row is read whole, so a sheet
+// in another layout is refused before any of its columns are trusted.
+const PULLS = {
+  shortlist: { cols: [0, 1, TABS.shortlist.status, TABS.shortlist.headers.length - 1], header: true },
+  history: { cols: [0, 1, TABS.history.outcome, TABS.history.reason, TABS.history.headers.length - 1] },
+  employers: { cols: [0, 1, TABS.employers.wstatus] },
+};
+function pullRanges(key, full) {
+  const t = TABS[key], p = PULLS[key], out = [];
+  if (full) return [a1(t, 0, t.headers.length - 1, p.header ? 1 : 2, R)];
+  if (p.header) out.push(a1(t, 0, t.headers.length - 1, 1, 1));
+  const cols = [...new Set(p.cols)].sort((a, b) => a - b);
+  for (let i = 0; i < cols.length; ) {
+    let j = i;
+    while (cols[j + 1] === cols[j] + 1) j++;
+    out.push(a1(t, cols[i], cols[j], 2, R));
+    i = j + 1;
+  }
+  return out;
+}
 
 const text = (d) => (d ? `'${d}` : '');
 const link = (url) => (url ? `=HYPERLINK("${url}","View posting")` : '');
@@ -110,7 +162,7 @@ function rows(tab) {
   if (tab === 'shortlist') {
     return apps.filter((r) => LIVE.includes(r.status))
       .sort(rankCompare)
-      .map((r) => [r.company, roleCell(r), r.status, num(r.role_fit), num(r.preference_fit), text(r.last_event), text(r.applied), r.track, r.resume, r.source, r.status === 'shortlisted' ? '' : r.referral, r.why, contactsCell(r.company), link(r.posting), r.id]);
+      .map((r) => [r.company, roleCell(r), r.status, num(r.role_fit), num(r.preference_fit), text(r.last_event), r.next_date ? `${r.next_date} · ${r.next_action}` : '', text(r.applied), r.track, r.resume, r.source, r.status === 'shortlisted' ? '' : r.referral, r.why, contactsCell(r.company), link(r.posting), r.id]);
   }
   if (tab === 'scoutlog') {
     // A rolling window: postings first seen in the last LOG_DAYS days. Older ones drop off at the next sync.
@@ -167,6 +219,39 @@ function rows(tab) {
 // that posting's posting.md, so the workspace stays the source of truth. A row is applied only when its Record ID points
 // at a record with the same company and role, so a partial sort in the sheet can never move a status onto the wrong posting.
 const readGrid = (file) => { const v = JSON.parse(readFileSync(file, 'utf8')); return Array.isArray(v) ? v : v.values ?? []; };
+// A tab's values from one or more files, each a get_values response ({ range, values }), a list of them, or a bare grid
+// (the whole tab: from A1 on the Shortlist, header row included, and from A2 on the others). Each cell lands in its own
+// column, so the pulls read the narrow ranges and a whole tab alike. A column a pull needs that no file covers stops it,
+// so a missing range can never pass for empty cells, and values from another tab are refused.
+function readTab(files, key) {
+  const t = TABS[key], p = PULLS[key], width = t.headers.length, covered = new Set(), grid = [];
+  let header = null;
+  const stop = (msg) => { console.error(`${msg} Nothing was written.`); process.exit(1); };
+  if (!files.length) stop(`Name the file(s) holding the ${t.title} tab's values (sheet.mjs ranges lists what to read).`);
+  const flat = (v) => (Array.isArray(v) ? (v.length && v.every((x) => x && typeof x === 'object' && !Array.isArray(x)) ? v.flatMap(flat) : [{ values: v }])
+    : v?.valueRanges ? v.valueRanges.flatMap(flat) : [v ?? {}]);
+  for (const file of files) for (const part of flat(JSON.parse(readFileSync(file, 'utf8')))) {
+    let c0 = 0, c1 = width - 1, r0 = p.header ? 1 : 2, r1 = R;
+    if (part.range) {
+      const m = String(part.range).match(/^(?:'((?:[^']|'')+)'|([^!']+))!([A-Z]+)(\d+)?(?::([A-Z]+)(\d+)?)?$/i);
+      if (!m) stop(`${file}: "${part.range}" isn't a range this can read.`);
+      const tab = (m[1] ?? m[2]).replace(/''/g, "'");
+      if (tab !== t.title) stop(`${file} holds values from the ${tab} tab, not ${t.title}.`);
+      c0 = colIndex(m[3]); r0 = +(m[4] || 1); c1 = m[5] ? colIndex(m[5]) : c0; r1 = m[6] ? +m[6] : R;
+    }
+    if (r1 >= 2) for (let c = c0; c <= c1; c++) covered.add(c);
+    for (const [i, row] of (part.values ?? []).entries()) {
+      const r = r0 + i, cells = (row || []).slice(0, c1 - c0 + 1);
+      const target = r === 1 ? (header ??= []) : (grid[r - 2] ??= []);
+      cells.forEach((v, j) => { target[c0 + j] = v; });
+    }
+    if (r0 === 1 && !(part.values ?? []).length) header ??= [];
+  }
+  const missing = p.cols.filter((c) => !covered.has(c));
+  if (missing.length) stop(`No values for ${missing.map((c) => `column ${col(c)} (${t.headers[c]})`).join(', ')} of the ${t.title} tab. Read every range sheet.mjs ranges ${key} prints.`);
+  const fill = (r) => Array.from({ length: width }, (_, i) => r?.[i] ?? '');
+  return { header: header && fill(header), rows: Array.from({ length: grid.length }, (_, i) => fill(grid[i])) };
+}
 // The record a sheet row belongs to, or a problem line when its Record ID is missing or points at another posting.
 function record(r, i, idCol, problems) {
   const [company = '', role = ''] = r, id = r[idCol] ?? '';
@@ -184,24 +269,106 @@ function record(r, i, idCol, problems) {
 
 // What the last sync wrote, by Record ID (and employer name). A sheet cell that still holds it isn't an edit, even
 // when the workspace has moved on since. With no record yet, the pulls compare with the workspace as it is.
+// The record also holds a fingerprint of each generated tab's rows as the sheet last confirmed them, so a sync writes
+// only the tabs whose rows have changed since (changed), and the tabs a sync set out to rewrite until its read-back
+// confirms them (pending).
 const SNAPSHOT = join(root, 'applications', 'data', 'sheet-sync.json');
 const snapshot = () => (existsSync(SNAPSHOT) ? JSON.parse(readFileSync(SNAPSHOT, 'utf8')) : null);
-function synced() {
-  const idOf = (r) => r.at(-1);
-  const snap = {
-    at: today,
-    shortlist: Object.fromEntries(rows('shortlist').map((r) => [idOf(r), r[2]])),
-    history: Object.fromEntries(rows('history').map((r) => [idOf(r), r[4]])),
-    employers: Object.fromEntries(rows('employers').map((r) => [norm(r[0]), [r[1], r[2]]])),
-  };
-  mkdirSync(dirname(SNAPSHOT), { recursive: true });
-  writeFileSync(SNAPSHOT, JSON.stringify(snap, null, 1) + '\n');
-  console.log(`Recorded this sync: ${Object.keys(snap.shortlist).length} Shortlist, ${Object.keys(snap.history).length} History, and ${Object.keys(snap.employers).length} Employers rows.`);
+const saveSnapshot = (snap) => { mkdirSync(dirname(SNAPSHOT), { recursive: true }); writeFileSync(SNAPSHOT, JSON.stringify(snap, null, 1) + '\n'); };
+// The generated tabs' headers. A record made for other headers says nothing about this layout's rows.
+const LAYOUT = createHash('sha256').update(JSON.stringify(GENERATED.map((k) => TABS[k].headers))).digest('hex').slice(0, 12);
+// Stats' Updated row holds the tracker's date, which moves every day, so it's left out of the comparison: the tab is
+// rewritten when its numbers change, and its Updated date shows the day they last did.
+const comparable = (key, rs) => (key === 'stats' ? rs.filter((r) => !(r[0] === 'Summary' && r[1] === 'Updated')) : rs);
+const digest = (key, rs) => createHash('sha256').update(JSON.stringify(comparable(key, rs))).digest('hex').slice(0, 16);
+// A tab the next sync rewrites whatever its rows: a pull that skipped rows or was refused, a sheet holding a different
+// number of rows than the last sync wrote, or a tab just added or brought up to date. Rewriting puts the sheet back in
+// step with the workspace. With no record yet, every tab is rewritten anyway.
+function markPending(keys) {
+  const snap = snapshot();
+  if (!snap) return;
+  snap.pending = { ...snap.pending };
+  for (const k of keys) snap.pending[k] ??= 'rewrite';
+  saveSnapshot(snap);
+}
+// After a pull: the rows it read against the count the last sync wrote, and whether it skipped any.
+function checkRead(key, n, problems) {
+  const wrote = snapshot()?.tabs?.[key]?.rows;
+  if (wrote !== undefined && wrote !== n) console.log(`  The ${TABS[key].title} tab has ${n} rows, and the last sync wrote ${wrote}, so the next sync rewrites it.`);
+  if (problems.length || (wrote !== undefined && wrote !== n)) markPending([key]);
 }
 
-function pull(file, apply) {
+// Which tabs to clear, write, and read back. A tab counts as changed when there's no record yet, when the record was made
+// for an earlier layout or another sheet, when the last sync set out to rewrite it and never confirmed it, when it's
+// named (or --all), or when its rows differ from the record. Rows are compared as written, so a rolling window that drops
+// a row because the date moved counts too. The changed tabs are recorded as pending until synced confirms them.
+function changed(all, named) {
+  const snap = snapshot(), id = String(get('sheet.spreadsheet_id', '') || '');
+  for (const k of named) if (!GENERATED.includes(tabKey(k))) throw new Error(`changed: unknown tab "${k}" (${GENERATED.join(', ')})`);
+  const whyAll = !snap || (!snap.tabs && !snap.at) ? 'no sync recorded yet' : !snap.tabs || snap.layout !== LAYOUT ? 'the last sync was recorded for an earlier layout'
+    : snap.sheet && id && snap.sheet !== id ? 'the last sync was recorded for another sheet' : '';
+  const pending = {}, out = [], dropdowns = [], n = (k) => `${k} row${k === 1 ? '' : 's'}`;
+  for (const key of GENERATED) {
+    const t = TABS[key], rs = rows(key), h = digest(key, rs), rec = snap?.tabs?.[key];
+    const why = whyAll || (all || named.map(tabKey).includes(key) ? 'asked for' : snap.pending?.[key] === 'rewrite' ? 'out of step with the workspace' : snap.pending?.[key] ? "the last sync that set out to rewrite it didn't confirm it"
+      : rec?.hash !== h ? (rec && rec.rows !== rs.length ? `${n(rec.rows)} then, ${rs.length} now` : 'rows changed') : '');
+    if (!why) { out.push(`${t.title.padEnd(10)} unchanged (${n(rs.length)})`); continue; }
+    pending[key] = h;
+    if (key === 'shortlist' || key === 'employers') dropdowns.push(key);
+    out.push(`${t.title.padEnd(10)} changed (${why}): clear ${dataRange(t)}, ${rs.length ? `write ${n(rs.length)} at ${a1(t, 0, 0, 2, 2).replace(/:.*/, '')}` : 'nothing to write'}${rs.length ? `, read back ${dataRange(t, rs.length)}` : ''}`);
+  }
+  saveSnapshot({ ...(snap ?? {}), pending });
+  for (const l of out) console.log(l);
+  const tabs = Object.keys(pending).length;
+  console.log(!tabs ? 'Nothing changed since the last sync: nothing to clear, write, or read back.'
+    : `${tabs} tab${tabs === 1 ? '' : 's'} to rewrite.${dropdowns.length ? ` Then send sheet.mjs dropdown ${dropdowns.join(' ')}.` : ' No dropdowns to reset.'} Run sheet.mjs synced once the read-back matches.`);
+}
+
+function synced() {
+  const old = snapshot() ?? {}, idOf = (r) => r.at(-1), current = old.layout === LAYOUT;
+  // A first sync, or one recorded before tabs were tracked, rewrote every tab. After that, only what changed set pending.
+  const full = old.pending === undefined && !(old.tabs && current);
+  const tabs = current ? { ...old.tabs } : {}, pending = old.pending ?? {}, still = {}, data = {};
+  for (const key of GENERATED) {
+    data[key] = rows(key);
+    const h = digest(key, data[key]);
+    if (full || (key in pending ? pending[key] === h : tabs[key]?.hash === h)) tabs[key] = { hash: h, rows: data[key].length };
+    // Written from rows that have changed again since: the next sync writes it once more.
+    else if (key in pending) still[key] = pending[key];
+  }
+  const ok = (key) => tabs[key]?.hash === digest(key, data[key]);
+  const snap = {
+    at: today, sheet: String(get('sheet.spreadsheet_id', '') || ''), layout: LAYOUT, tabs, ...(Object.keys(still).length ? { pending: still } : {}),
+    shortlist: ok('shortlist') ? Object.fromEntries(data.shortlist.map((r) => [idOf(r), r[2]])) : old.shortlist,
+    history: ok('history') ? Object.fromEntries(data.history.map((r) => [idOf(r), r[4]])) : old.history,
+    employers: ok('employers') ? Object.fromEntries(data.employers.map((r) => [norm(r[0]), [r[1], r[2]]])) : old.employers,
+  };
+  saveSnapshot(snap);
+  console.log(`Recorded this sync: ${data.shortlist.length} Shortlist, ${data.history.length} History, and ${data.employers.length} Employers rows.`
+    + (Object.keys(still).length ? `\nThe workspace changed after sheet.mjs changed ran, so the next sync rewrites ${Object.keys(still).map((k) => TABS[k].title).join(', ')} again.` : ''));
+}
+
+// The Shortlist's header row decides whether its columns can be trusted: a row read from an older layout would put a
+// status on the wrong posting, so pull reads nothing until the header row is this version's.
+const cells = (row) => { const c = (row || []).map((x) => String(x ?? '').trim()); while (c.length && !c.at(-1)) c.pop(); return c; };
+const sameRow = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
+function shortlistLayout(header) {
+  const h = cells(header);
+  if (sameRow(h, TABS.shortlist.headers)) return 'current';
+  if (sameRow(h, SHORTLIST_BEFORE_NEXT)) return 'before-next';
+  return h[0] === 'Company' ? 'unknown' : 'no-header';
+}
+
+function pull(files, apply) {
   const changes = [], problems = [], snap = snapshot()?.shortlist;
-  for (const [i, r] of readGrid(file).entries()) {
+  const stop = (msg) => { console.error(`${msg} Nothing was logged.`); process.exit(1); };
+  // The header row decides before any column is trusted (a bare grid's first row is its header row).
+  const { header, rows: sheetRows } = readTab(files, 'shortlist');
+  const layout = shortlistLayout(header);
+  if (layout === 'no-header') stop(`The values don't start with the Shortlist's header row. Read the ranges sheet.mjs ranges shortlist prints (${pullRanges('shortlist').join(', ')}), header row included, and run pull again.`);
+  if (layout === 'before-next') stop('The Shortlist has the layout from before the Next column, so its columns don\'t line up with this version\'s. Bring the sheet up to date first with sheet.mjs upgrade (Bringing an Existing Sheet Up to Date, in the sheet skill\'s layout.md).');
+  if (layout === 'unknown') stop(`The Shortlist's header row isn't the layout this version writes (${TABS.shortlist.headers.join(', ')}). Compare it with sheet.mjs headers shortlist and fix the sheet first.`);
+  for (const [i, r] of sheetRows.entries()) {
     const [company = '', role = '', status = ''] = r;
     if (!company && !role && !status) continue;
     const rec = record(r, i, TABS.shortlist.headers.length - 1, problems);
@@ -222,14 +389,15 @@ function pull(file, apply) {
   console.log(changes.length ? `${apply ? 'Logged' : 'Would log'} ${changes.length} status change(s) from the sheet:\n${changes.map((c) => `  ${c}`).join('\n')}`
     : 'No status changes in the sheet.');
   for (const p of problems) console.log(`  [skipped] ${p}`);
+  checkRead('shortlist', sheetRows.filter((r) => r.some((c) => String(c ?? '').trim())).length, problems);
   if (changes.length && !apply) console.log('Run again with --apply to write them, then run tracker.mjs and sync.');
 }
 
 // History's Reason column is the user's to edit: a typed reason replaces the note on the posting's last event, which is
 // the ending that put it in History. Optional, for tuning the scout's screen.
-function pullHistory(file, apply) {
-  const changes = [], problems = [], snap = snapshot()?.history;
-  for (const [i, r] of readGrid(file).entries()) {
+function pullHistory(files, apply) {
+  const changes = [], problems = [], snap = snapshot()?.history, sheetRows = readTab(files, 'history').rows;
+  for (const [i, r] of sheetRows.entries()) {
     const [company = '', role = '', outcome = '', , reason = ''] = r;
     if (!company && !role) continue;
     const rec = record(r, i, TABS.history.headers.length - 1, problems);
@@ -244,6 +412,7 @@ function pullHistory(file, apply) {
   console.log(changes.length ? `${apply ? 'Saved' : 'Would save'} ${changes.length} reason(s) from the History tab:\n${changes.map((c) => `  ${c}`).join('\n')}`
     : 'No reason changes in the History tab.');
   for (const p of problems) console.log(`  [skipped] ${p}`);
+  checkRead('history', sheetRows.filter((r) => r[0] || r[1]).length, problems);
   if (changes.length && !apply) console.log('Run again with --apply to write them, then run tracker.mjs and sync.');
 }
 
@@ -256,10 +425,11 @@ function pullHistory(file, apply) {
 //   a row deleted                paused, or taken off the watchlist if it was already paused
 // Research-only rows (not watched, and not on the watchlist) need nothing. More than a quarter of the list paused or removed
 // at once is refused without --force, and so is an empty read, so a bad read can't wipe the watchlist.
-function pullEmployers(file, apply, force) {
+function pullEmployers(files, apply, force) {
   const w = readWatchlist(), problems = [], sheet = new Map(), snap = snapshot()?.employers;
   if (w.missing) { console.log('No applications/watchlist.md in this workspace. Nothing to pull.'); return; }
-  for (const [i, r] of readGrid(file).entries()) {
+  const sheetRows = readTab(files, 'employers').rows;
+  for (const [i, r] of sheetRows.entries()) {
     const [name = '', domain = '', status = ''] = r.map((x) => String(x ?? '').trim());
     if (!name) continue;
     if (sheet.has(norm(name))) { problems.push(`row ${i + 2} (${name}): listed twice. Kept the first.`); continue; }
@@ -269,7 +439,7 @@ function pullEmployers(file, apply, force) {
     if (snap?.[norm(name)] && snap[norm(name)][0] === domain && snap[norm(name)][1] === (status || 'watching')) { sheet.set(norm(name), { name, keep: true }); continue; }
     sheet.set(norm(name), { name, domain, status: status || 'watching', row: i + 2 });
   }
-  if (!sheet.size) { console.log('The Employers tab read back empty, so nothing was changed. Check the range and try again.'); return; }
+  if (!sheet.size) { console.log('The Employers tab read back empty, so nothing was changed. Check the range and try again.'); markPending(['employers']); return; }
 
   const adds = [], resumes = [], pauses = [], removes = [], moves = [];
   for (const { name, domain, status, row, keep } of sheet.values()) {
@@ -298,6 +468,7 @@ function pullEmployers(file, apply, force) {
   console.log(out.length ? `${apply ? 'Applied' : 'Would apply'} ${out.length} change(s) from the Employers tab:\n${out.join('\n')}` : 'No changes in the Employers tab.');
   for (const p of problems) console.log(`  [skipped] ${p}`);
   const dropped = pauses.length + removes.length, limit = Math.max(3, Math.floor(w.rows.length / 4));
+  checkRead('employers', sheetRows.filter((r) => String(r[0] ?? '').trim()).length, dropped > limit && !force ? [...problems, 'refused'] : problems);
   if (dropped > limit && !force) return console.log(`That pauses or removes ${dropped} of ${w.rows.length} employers, more than the ${limit} a sync allows without --force. Nothing was written. Confirm with the user first.`);
   if (!out.length) return;
   if (!apply) return console.log('Run again with --apply to write them, then find a feed for each added employer.');
@@ -345,7 +516,6 @@ function prune(apply) {
 // ---- formatting for a new sheet ----
 const hex = (h) => { h = h.replace('#', ''); return { red: +(parseInt(h.slice(0, 2), 16) / 255).toFixed(3), green: +(parseInt(h.slice(2, 4), 16) / 255).toFixed(3), blue: +(parseInt(h.slice(4, 6), 16) / 255).toFixed(3) }; };
 const PRIMARY = PALETTE.primary, ACCENT = PALETTE.accent;
-const R = 1000;
 const grid = (s, r0, r1, c0, c1) => ({ sheetId: s, startRowIndex: r0, endRowIndex: r1, startColumnIndex: c0, endColumnIndex: c1 });
 const GRADIENT = { minpoint: { type: 'NUMBER', value: '1', color: hex('#f3d3cf') }, midpoint: { type: 'NUMBER', value: '3', color: hex('#fbf0d4') }, maxpoint: { type: 'NUMBER', value: '5', color: hex('#d5ecdc') } };
 const pill = (s, col, formula, bg, fg) => ({ addConditionalFormatRule: { index: 0, rule: { ranges: [grid(s, 1, R, col, col + 1)],
@@ -359,12 +529,19 @@ const anyOf = (col, xs) => { const C = String.fromCharCode(65 + col); return `=O
 // user types in gets its dropdown at the next sync (a blank Status on a new employer row means watching).
 const dropdownOn = (t, c, n, values, strict) => [{ setDataValidation: { range: grid(t.id, 1, R, c, c + 1) } },
   ...(n && values.length ? [{ setDataValidation: { range: grid(t.id, 1, 1 + n, c, c + 1), rule: { condition: { type: 'ONE_OF_LIST', values: values.map((v) => ({ userEnteredValue: v })) }, strict, showCustomUi: true } } }] : [])];
-function dropdown() {
-  const e = rows('employers'), domains = [...new Set(e.map((r) => r[1]).filter(Boolean))].sort();
-  return [...dropdownOn(TABS.shortlist, TABS.shortlist.status, rows('shortlist').length, STAGES, true),
-    ...dropdownOn(TABS.employers, TABS.employers.wstatus, e.length, EMPLOYER_STATUSES, true),
-    // Domain isn't strict: typing a new domain makes one.
-    ...dropdownOn(TABS.employers, 1, e.length, domains, false)];
+// Only for the tabs named (shortlist, employers), or both: a sync resets the dropdowns of the tabs it rewrote.
+function dropdown(keys) {
+  const want = keys.length ? keys.map(tabKey) : ['shortlist', 'employers'];
+  for (const k of want) if (!['shortlist', 'employers'].includes(k)) throw new Error(`dropdown: "${k}" has no dropdowns (shortlist, employers)`);
+  const q = [];
+  if (want.includes('shortlist')) q.push(...dropdownOn(TABS.shortlist, TABS.shortlist.status, rows('shortlist').length, STAGES, true));
+  if (want.includes('employers')) {
+    const e = rows('employers'), domains = [...new Set(e.map((r) => r[1]).filter(Boolean))].sort();
+    q.push(...dropdownOn(TABS.employers, TABS.employers.wstatus, e.length, EMPLOYER_STATUSES, true),
+      // Domain isn't strict: typing a new domain makes one.
+      ...dropdownOn(TABS.employers, 1, e.length, domains, false));
+  }
+  return q;
 }
 
 // The Shortlist's gray for endings, shown until the next sync moves the row to History.
@@ -388,7 +565,7 @@ function format(t, tabColor) {
   for (const c of t.scores || []) q.push({ addConditionalFormatRule: { index: 0, rule: { ranges: [grid(s, 1, R, c, c + 1)], gradientRule: GRADIENT } } });
   if (t.status !== undefined) {
     q.push(pill(s, t.status, anyOf(t.status, ['shortlisted']), '#faf1dc', '#7a5a12'));
-    q.push(pill(s, t.status, anyOf(t.status, ['interested']), '#dff3f1', '#0f6b62'));
+    q.push(pill(s, t.status, anyOf(t.status, ['interested', 'conversation']), '#dff3f1', '#0f6b62'));
     q.push(pill(s, t.status, anyOf(t.status, ['applied', 'recruiter-screen', 'hiring-manager', 'interviews', 'final']), '#e1ecf8', '#1d5c96'));
     q.push(pill(s, t.status, anyOf(t.status, ['offer', 'accepted']), '#dff1e4', '#1e6b34'));
   }
@@ -434,9 +611,35 @@ function setup() {
   return q;
 }
 
+// Brings an existing sheet's Shortlist up to this version's layout, from its header row. Inserting the Next column after
+// Last event shifts every later column one to the right. The insert copies Last event's format into the new column and
+// stretches neighboring conditional-format ranges, so the new column gets its own format, and the tab's conditional
+// formats (the n rules it has now) are deleted and added again as setup makes them. The filter is set again over every
+// column, which clears the user's filter choices once. Banding, the muted Record ID, and the Status dropdown move with
+// their columns. The sync that follows rewrites every row.
+function upgrade(file, rules) {
+  const layout = shortlistLayout(readGrid(file)[0]);
+  if (layout === 'current') { console.error('The Shortlist is already up to date. Nothing to send.'); return []; }
+  if (layout !== 'before-next') throw new Error(`The header row in ${file} isn't a Shortlist layout this version knows how to bring up to date. Compare it with sheet.mjs headers shortlist.`);
+  if (rules === undefined || !/^\d+$/.test(String(rules))) throw new Error('Pass --rules <n>: how many conditional format rules the Shortlist has now (get_spreadsheet, fields sheets(properties.sheetId,conditionalFormats)).');
+  const t = TABS.shortlist, c = t.next;
+  // Every row moves a column, so the next sync rewrites the Shortlist in the new layout.
+  markPending(['shortlist']);
+  return [
+    { insertDimension: { range: { sheetId: t.id, dimension: 'COLUMNS', startIndex: c, endIndex: c + 1 }, inheritFromBefore: true } },
+    { updateCells: { range: grid(t.id, 0, 1, c, c + 1), rows: [{ values: [{ userEnteredValue: { stringValue: t.headers[c] } }] }], fields: 'userEnteredValue' } },
+    { repeatCell: { range: grid(t.id, 1, R, c, c + 1), cell: { userEnteredFormat: { horizontalAlignment: 'LEFT', wrapStrategy: 'WRAP' } }, fields: 'userEnteredFormat.horizontalAlignment,userEnteredFormat.wrapStrategy' } },
+    { updateDimensionProperties: { range: { sheetId: t.id, dimension: 'COLUMNS', startIndex: c, endIndex: c + 1 }, properties: { pixelSize: t.widths[c] }, fields: 'pixelSize' } },
+    ...Array.from({ length: +rules }, () => ({ deleteConditionalFormatRule: { sheetId: t.id, index: 0 } })),
+    ...format(t, COLORS.shortlist).filter((q) => q.addConditionalFormatRule), endingGray(),
+    filter(t),
+  ];
+}
+
 // Adds one tab, formatted, to an existing sheet, for example one the user deleted by mistake.
 function addTab(key, index) {
   const t = TABS[key];
+  if (GENERATED.includes(key)) markPending([key]);
   return [{ addSheet: { properties: { sheetId: t.id, title: t.title, ...(index !== undefined ? { index: +index } : {}) } } }, ...format(t, COLORS[key])];
 }
 
@@ -448,15 +651,26 @@ if (cmd === 'rows') {
   // The connections module's refresh nudge, on stderr so the JSON stays clean.
   if (['shortlist', 'history'].includes(tabKey(arg)) && freshness()) console.error(`[connections] ${freshness()}`);
 }
+else if (cmd === 'ranges') {
+  const keys = process.argv.slice(3).filter((a) => !a.startsWith('--')).map(tabKey), full = process.argv.includes('--full');
+  for (const k of keys) if (!PULLS[k]) throw new Error(`ranges: "${k}" has no pull (shortlist, history, employers)`);
+  const cmdOf = { shortlist: 'pull', history: 'pull-history', employers: 'pull-employers' };
+  for (const k of keys.length ? keys : Object.keys(PULLS)) console.log(`${k} (${cmdOf[k]}): ${pullRanges(k, full).join(' ')}`);
+}
 else if (cmd === 'headers') console.log(JSON.stringify([TABS[tabKey(arg)]?.headers ?? (() => { throw new Error(`unknown tab ${arg}`); })()]));
-else if (cmd === 'pull') pull(arg, flag === '--apply');
-else if (cmd === 'pull-employers') pullEmployers(arg, process.argv.includes('--apply'), process.argv.includes('--force'));
-else if (cmd === 'pull-history') pullHistory(arg, flag === '--apply');
+else if (['pull', 'pull-history', 'pull-employers'].includes(cmd)) {
+  const files = process.argv.slice(3).filter((a) => !a.startsWith('--')), apply = process.argv.includes('--apply');
+  if (cmd === 'pull') pull(files, apply);
+  else if (cmd === 'pull-history') pullHistory(files, apply);
+  else pullEmployers(files, apply, process.argv.includes('--force'));
+}
+else if (cmd === 'changed') changed(process.argv.includes('--all'), process.argv.slice(3).filter((a) => !a.startsWith('--')));
 else if (cmd === 'synced') synced();
 else if (cmd === 'setup') console.log(JSON.stringify(setup()));
+else if (cmd === 'upgrade') { const i = process.argv.indexOf('--rules'); console.log(JSON.stringify(upgrade(arg, i < 0 ? undefined : process.argv[i + 1]))); }
 else if (cmd === 'prune') prune(arg === '--apply');
 else if (cmd === 'add-tab') console.log(JSON.stringify(addTab(tabKey(arg), flag)));
-else if (cmd === 'dropdown') console.log(JSON.stringify(dropdown()));
+else if (cmd === 'dropdown') console.log(JSON.stringify(dropdown(process.argv.slice(3))));
 else if (cmd === 'filters') console.log(JSON.stringify(filters(process.argv.slice(3))));
 else if (cmd === 'career-formula') console.log(careerFormula(+arg || 2));
-else console.error('Usage: node <plugin>/tools/sheet.mjs rows <shortlist|scoutlog|history|stats|employers> | headers <tab> | pull <values.json> [--apply] | pull-employers <values.json> [--apply] [--force] | pull-history <values.json> [--apply] | prune [--apply] | dropdown | filters [tab...] | setup | add-tab <tab> [index] | career-formula <row>');
+else console.error('Usage: node <plugin>/tools/sheet.mjs rows <shortlist|scoutlog|history|stats|employers> | headers <tab> | ranges [tab...] [--full] | pull <values.json>... [--apply] | pull-employers <values.json>... [--apply] [--force] | pull-history <values.json>... [--apply] | changed [--all] [tab...] | synced | upgrade <header.json> [--rules <n>] | prune [--apply] | dropdown [tab...] | filters [tab...] | setup | add-tab <tab> [index] | career-formula <row>');

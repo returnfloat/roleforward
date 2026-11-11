@@ -6,6 +6,8 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { SCHEMA, SOURCES } from '../plugins/roleforward/tools/doctor.mjs';
+import { PIPELINE, ENDINGS } from '../plugins/roleforward/tools/records.mjs';
+import { parseYaml } from '../plugins/roleforward/tools/workspace.mjs';
 import { PLUGIN } from './fixture.mjs';
 import { WATCHLIST } from './feed-responses.mjs';
 
@@ -121,6 +123,55 @@ test('every skill has a name and description, and the README lists it', () => {
     assert.match(fm, /^description: .{40,}/m, `skills/${s}/SKILL.md description`);
     assert.ok(readme.includes(`/${s}`) || readme.includes(`roleforward:${s}`), `README.md doesn't list /${s}`);
   }
+});
+
+test('every reference file next to a SKILL.md is named in it, so the skill knows when to read it', () => {
+  const bad = [];
+  for (const s of skills) {
+    const main = read(PLUGIN, 'skills', s, 'SKILL.md');
+    for (const f of readdirSync(join(PLUGIN, 'skills', s)).filter((x) => x.endsWith('.md') && x !== 'SKILL.md'))
+      if (!main.includes(`\`${f}\``)) bad.push(`skills/${s}/${f}`);
+  }
+  assert.deepEqual(bad, []);
+});
+
+test('every reference file a doc points to exists: next to its SKILL.md, or in the skill it names', () => {
+  const bad = [];
+  for (const [file, text] of docs().filter(([f]) => f.startsWith('skills/'))) {
+    const here = file.split('/')[1];
+    for (const m of text.matchAll(/`([\w-]+\.md)` next to this file/g)) if (!existsSync(join(PLUGIN, 'skills', here, m[1]))) bad.push(`${file}: ${m[1]}`);
+    for (const m of text.matchAll(/the `?(\w+)`? skill's `([\w-]+\.md)`/g)) if (!existsSync(join(PLUGIN, 'skills', m[1], m[2]))) bad.push(`${file}: ${m[1]}/${m[2]}`);
+  }
+  assert.deepEqual(bad, []);
+});
+
+test("the rules a scheduled run follows are in the SKILL.md its prompt loads, not in a reference file", () => {
+  const schedule = read(TOOLS, 'schedule.mjs');
+  assert.match(schedule, /follow the skill\\'s rules for scheduled runs/);
+  assert.match(read(PLUGIN, 'skills', 'scout', 'SKILL.md'), /\*\*When the prompt says it's a scheduled run,\*\* no one is watching:/);
+  assert.match(read(PLUGIN, 'skills', 'sheet', 'SKILL.md'), /\*\*On a scheduled run\*\* \(the prompt says so/);
+  // The discovery task names a section of the scout skill.
+  const section = schedule.match(/Run only ([^.(]+?) \(discovery\)/)?.[1];
+  assert.ok(section && read(PLUGIN, 'skills', 'scout', 'SKILL.md').includes(`## ${section} (discovery)`), section);
+});
+
+test('every template with frontmatter parses as YAML (workspaces open in Obsidian)', () => {
+  for (const f of readdirSync(join(PLUGIN, 'templates'), { recursive: true }).filter((x) => x.endsWith('.md'))) {
+    const fm = read(PLUGIN, 'templates', f).replace(/\r\n?/g, '\n').match(/^---\n([\s\S]*?)\n---\n/);
+    if (fm) assert.doesNotThrow(() => parseYaml(fm[1]), `templates/${f}`);
+  }
+});
+
+test('the record format names every stage, in pipeline order', () => {
+  const readme = read(PLUGIN, 'templates', 'applications', 'README.md');
+  const list = (label) => [...(readme.match(new RegExp(`\\*\\*${label}[^*]*:\\*\\* (.*)`))?.[1] ?? '').matchAll(/`([\w-]+)`/g)].map((m) => m[1]);
+  assert.deepEqual(list('Pipeline'), PIPELINE);
+  assert.deepEqual(list('Endings'), ENDINGS);
+});
+
+test('no em dashes in the skills, templates, or README', () => {
+  const bad = docs().filter(([, t]) => t.includes('\u2014')).map(([f]) => f);
+  assert.deepEqual(bad, []);
 });
 
 // ---- Packaging ----

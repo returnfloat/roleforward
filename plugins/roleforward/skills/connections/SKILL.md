@@ -12,7 +12,7 @@ Shows who the user already knows at a company, so a good-fit posting can come wi
 - **The workspace** is the current folder, or the nearest parent with a `workspace.yaml`. Settings live under `connections` there: `enabled`, `refresh_days` (30 if unset), `function_words` (regex fragments for the user's own field, defaulting to the first `scout.title_all` pattern), and `aliases` (a company and the other names it goes by).
 - **Their own instructions win.** The workspace's `CLAUDE.md` and `MEMORY.md` override this skill where they conflict.
 - **Scripts** live in the plugin's `tools/` folder, two levels above this skill's base directory. Run them from the workspace root as `node <tools>/connections.mjs`.
-- **Setup trouble:** when a script fails in a way that points to setup (no Chrome, a setting it can't read, a source the scout doesn't know), run `node <tools>/doctor.mjs` (`<tools>` is the plugin's `tools/` folder). It checks Node, Chrome, `workspace.yaml` against every setting the plugin reads, the files it names, the career direction file, and the watchlist, and changes nothing. Fix what it calls a problem before going on.
+- **Setup trouble:** when a script fails in a way that points to setup, run `node <tools>/doctor.mjs`, which changes nothing, and fix what it calls a problem.
 
 ## Hard Rules
 

@@ -11,7 +11,7 @@
 // Either way the folder ends up holding resume.md, <file_stem>-Resume.pdf and .txt. Freezing then:
 //   - refuses if the PDF is older than its Markdown source (render first)
 //   - adds the applied event, frozen date, and sha256 hashes of every frozen file to posting.md
-//   - makes resume.md, the PDF, the .txt, answers.md, and jd.md read-only
+//   - makes resume.md, the PDF, the .txt, answers.md, and jd.md read-only (or lead.md, for a lead with no job description)
 // posting.md stays writable, since events keep coming after applying. Then the tracker is rebuilt.
 
 import { existsSync, statSync, chmodSync, copyFileSync, readFileSync, writeFileSync, readdirSync } from 'node:fs';
@@ -45,7 +45,9 @@ function freeze(dirArg, date = new Date().toLocaleDateString('en-CA')) {
   if (!resumeMd.startsWith('---\n')) throw new Error(`${relPath(root, src.md)} needs frontmatter.`);
   writeFileSync(join(dir, 'resume.md'), resumeMd.replace(/^---\n/, '---\n' + mark));
 
-  const files = ['resume.md', PDF, TXT, 'answers.md', 'jd.md'].filter((f) => existsSync(join(dir, f)));
+  // A lead with no job posting has lead.md (what was said about the role) in place of jd.md.
+  const about = existsSync(join(dir, 'jd.md')) ? 'jd.md' : 'lead.md';
+  const files = ['resume.md', PDF, TXT, 'answers.md', about].filter((f) => existsSync(join(dir, f)));
   const events = data.events || [];
   if (!events.map(parseEvent).some((e) => e.stage === 'applied')) events.push(`${date} | applied`);
   writeFrontmatter(posting, { ...data, events, frozen: date, frozen_files: Object.fromEntries(files.map((f) => [f, sha(join(dir, f))])) }, body);

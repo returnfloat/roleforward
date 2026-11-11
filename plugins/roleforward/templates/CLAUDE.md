@@ -6,7 +6,7 @@ This folder is <Name>'s career workspace, run by the RoleForward plugin for Clau
 
 1. **Read `README.md` for context:** what RoleForward does and how it works, with the installed plugin version at the top.
 2. **Use `INDEX.md` to find anything,** and keep it current: it's rebuilt by every tracker run, so run the tracker after adding, moving, or deleting files.
-3. **Read `MEMORY.md`** for status and open items, and save to it before the session ends: decisions, open items, and anything learned about how <Name> likes to work.
+3. **Read `MEMORY.md`** for status and open items, and save to it before the session ends: decisions, open items, and anything learned about how <Name> likes to work. Run reports don't go there: the scout keeps its own run history, and replaces only MEMORY.md's one Last scout run line.
 
 ## Standing Instructions
 

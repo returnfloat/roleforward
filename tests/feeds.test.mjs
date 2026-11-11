@@ -6,6 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { gunzipSync } from 'node:zlib';
 import { parseCsv } from '../plugins/roleforward/tools/csv.mjs';
 import { buildWorkspace } from './fixture.mjs';
 import { WATCHLIST } from './feed-responses.mjs';
@@ -266,7 +267,8 @@ test('health checks flag short, repeated, empty, and sharply smaller feeds', () 
 // A posting waiting on the user's decision, at one of the synthetic employers.
 function awaiting(ws, slug, role, { key = '', link = '', stage = 'shortlisted' } = {}) {
   const folder = `applications/${slug}/2026-01-01-${role.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
-  ws.write(`${folder}/posting.md`, `---\ncompany: ${slug}\nrole: ${role}\nposting: ${link}\nscout_key: ${key}\nevents:\n  - 2026-01-01 | shortlisted\n${stage === 'interested' ? '  - 2026-01-02 | interested\n' : ''}---\n`);
+  const later = { interested: ['interested'], conversation: ['interested', 'conversation'] }[stage] ?? [];
+  ws.write(`${folder}/posting.md`, `---\ncompany: ${slug}\nrole: ${role}\nposting: ${link}\nscout_key: ${key}\nevents:\n  - 2026-01-01 | shortlisted\n${later.map((s, i) => `  - 2026-01-0${i + 2} | ${s}\n`).join('')}---\n`);
   return folder;
 }
 
@@ -370,5 +372,121 @@ test('a refused later page keeps the postings already fetched, as a partial feed
     assert.doesNotMatch(out, /\[error\] Employer G/);
     assert.ok(ws.seen()['eightfold:careers.example.invalid/example.invalid/pcsx:7001'], 'the first page\'s match is kept');
     assert.doesNotMatch(out, /\[short\] Employer G/, 'a partial feed is not also reported as short');
+  } finally { ws.cleanup(); }
+});
+
+// ---- The title audit: each run saves its postings, and audit shows the title screen's near misses among them ----
+
+const savedPostings = (ws) => JSON.parse(gunzipSync(readFileSync(join(ws.root, 'applications', 'data', 'scout-postings.json.gz'))));
+
+test('a run saves every fetched posting for the title audit, compactly, and audit reads them', () => {
+  const ws = feedWorkspace();
+  try {
+    assert.match(ws.scoutFails(['audit']).out, /No saved postings yet\. Run `scout\.mjs` first/);
+    ws.scout();
+    const s = savedPostings(ws);
+    assert.equal(s.run, new Date().toLocaleDateString('en-CA'));
+    assert.deepEqual(Object.keys(s), ['run', 'missed', 'capped', 'companies', 'postings']);
+    assert.equal(s.postings.reduce((n, p) => n + (p[3] ?? 1), 0), 97, 'every fetched posting, matching or not');
+    assert.ok(s.postings.every((p) => p.length === 3 || (p.length === 4 && p[3] > 1)), 'employer, title, and place, plus a count only for repeats');
+    assert.ok(s.postings.some(([c, t, l]) => s.companies[c] === 'Employer D' && t === 'Lead Data Engineer' && l === 'Example City ST'));
+    assert.deepEqual([s.missed, s.capped], [[], []]);
+    // Lead and Staff titles become near misses: one fails the level pattern, the other is excluded by title_none.
+    ws.write('workspace.yaml', ws.read('workspace.yaml').replace('(senior|staff|lead|principal)', '(senior|staff|principal)').replace('intern|sales', 'intern|staff|sales'));
+    const out = ws.scout(['audit']);
+    assert.match(out, /^Title audit of the scout run on \d{4}-\d{2}-\d{2} \(today\)\.\n97 postings looked at, 95 in a place that fits, 14 of those passed the title screen\. Near misses: 3 failed one title_all pattern, 6 excluded by title_none\.\n/);
+    assert.match(out, /\n  Missed '\\b\(senior\|staff\|principal\)\\b' \(3 postings, 1 title\):\n {7}3  Lead Data Engineer  \(Employer C, Employer D, Employer M\)\n  Missed '\\bdata\\b': none\n/);
+    assert.match(out, /\n  Matched "staff" \(6 postings, 1 title\):\n {7}6  Staff Data Engineer  \(Employer B, Employer D, Employer I \+3 more\)\n/);
+    assert.doesNotMatch(out, /Searches that came back/);
+    const audit = JSON.parse(ws.read('applications/data/title-audit.json'));
+    assert.equal(audit.date, s.run);
+    assert.match(audit.patterns, /^[0-9a-f]{12}$/);
+  } finally { ws.cleanup(); }
+});
+
+test('the title audit is due when it has never run, monthly, and after a title pattern changes', () => {
+  const ws = feedWorkspace();
+  try {
+    const line = (out) => out.split('\n').find((l) => l.startsWith('Title audit:'));
+    assert.equal(line(ws.scout()), 'Title audit: last run never. Due now: run `scout.mjs audit` from the plugin tools folder.');
+    ws.scout(['audit']);
+    const today = new Date().toLocaleDateString('en-CA');
+    assert.equal(line(ws.scout()), `Title audit: last run ${today}.`);
+    assert.match(ws.run('doctor'), new RegExp(`ok\\s+Title audit \\(${today}\\): current with the title patterns`));
+    assert.deepEqual([JSON.parse(ws.read('output/scout/latest.json')).last_audit, JSON.parse(ws.read('output/scout/latest.json')).audit_due], [today, false]);
+    const audit = JSON.parse(ws.read('applications/data/title-audit.json'));
+    const old = new Date(Date.now() - 31 * 864e5).toLocaleDateString('en-CA');
+    ws.write('applications/data/title-audit.json', JSON.stringify({ ...audit, date: old }));
+    assert.equal(line(ws.scout()), `Title audit: last run ${old}. Due now: run \`scout.mjs audit\` from the plugin tools folder.`);
+    ws.write('applications/data/title-audit.json', JSON.stringify(audit));
+    ws.write('workspace.yaml', ws.read('workspace.yaml').replace('intern|sales', 'intern|sales|example'));
+    assert.equal(line(ws.scout()), `Title audit: last run ${today}. Due now (scout.title_all or scout.title_none changed since): run \`scout.mjs audit\` from the plugin tools folder.`);
+    assert.equal(JSON.parse(ws.read('output/scout/latest.json')).audit_due, true);
+    assert.match(ws.run('doctor'), /warn\s+Title audit \(.*\): scout\.title_all or scout\.title_none changed since\. Run scout\.mjs audit\./);
+    ws.scout(['audit']);
+    assert.equal(line(ws.scout()), `Title audit: last run ${today}.`, 'an audit against the new patterns clears it');
+  } finally { ws.cleanup(); }
+});
+
+test('a search that came back at the site\'s cap is listed in the audit, not as a short feed', () => {
+  const ws = feedWorkspace();
+  try {
+    const out = ws.scout([], ['workday-capped']);
+    assert.doesNotMatch(out, /\[(short|partial)\] Employer D/);
+    assert.deepEqual(JSON.parse(ws.read('output/scout/latest.json')).capped, [{ company: 'Employer D', term: 'data engineer', got: 200, total: 250 }]);
+    assert.match(ws.scout(['audit']), /\nSearches that came back at the site's cap \(postings past it were never fetched\):\n  Employer D, "data engineer": got 200 of 250\n/);
+    // An employer that wasn't fetched is named, so its postings aren't taken as absent.
+    ws.scout([], ['workday-down']);
+    assert.match(ws.scout(['audit']), /^Title audit of the scout run on \S+ \(today\)\. Not fetched that run: Employer D\.\n/);
+  } finally { ws.cleanup(); }
+});
+
+// ---- Leads in conversation, and the run history ----
+
+test('a posting in conversation is checked when it has a key or a link, and a lead with neither is never expired', () => {
+  const ws = feedWorkspace();
+  try {
+    const talking = awaiting(ws, 'employer-a', 'Gone Talking Role', { key: 'greenhouse:test-employer-a:1999', stage: 'conversation' });
+    const lead = awaiting(ws, 'employer-q', 'Head of Data', { stage: 'conversation' });
+    const heard = awaiting(ws, 'employer-r', 'Data Platform Lead', { stage: 'interested' });
+    for (const run of [1, 2, 3]) {
+      const out = ws.scout();
+      if (run === 1) assert.ok(out.includes(`[closed] ${talking}: the site answers 404 for it. Marked expired.`), out);
+      assert.ok(!out.includes(lead) && !out.includes(heard), `run ${run}: a lead with no link is left alone\n${out}`);
+    }
+    assert.doesNotMatch(ws.read(`${lead}/posting.md`), /expired/);
+    assert.doesNotMatch(ws.read(`${heard}/posting.md`), /expired/);
+    assert.doesNotMatch(ws.scout(['closed']), /employer-q|employer-r/);
+    assert.ok(!existsSync(join(ws.root, 'applications', 'data', 'closure-checks.csv')) || !/employer-[qr]/.test(ws.read('applications/data/closure-checks.csv')));
+  } finally { ws.cleanup(); }
+});
+
+test('each run adds one line to the run history, and runs shows recent ones with how their postings were screened', () => {
+  const ws = feedWorkspace();
+  try {
+    assert.match(ws.scout(['runs']), /^No scout runs recorded yet\./);
+    ws.scout();
+    ws.scout([], ['greenhouse-short', 'ashby-empty']);
+    const runs = parseCsv(ws.read('applications/data/scout-runs.csv'));
+    assert.equal(runs.length, 2);
+    assert.deepEqual(Object.keys(runs[0]), ['run', 'employers', 'fetched', 'matched', 'new', 'held', 'closed', 'warnings']);
+    assert.match(runs[0].run, /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+    assert.deepEqual([runs[0].employers, runs[0].fetched, runs[0].new, runs[0].closed, runs[0].warnings], ['15', '97', '21', '0', '']);
+    assert.deepEqual([runs[1].new, runs[1].closed], ['0', '1'], "the empty Ashby board no longer lists the fixture's interested posting");
+    assert.equal(runs[1].warnings, 'empty 1; short 1');
+    // The screening the skill does afterwards shows up through seen.csv.
+    const key = 'amazon:-:test-amz-1';
+    ws.scout(['mark', key, 'dropped', 'Wrong level: example']);
+    ws.scout(['mark', 'smartrecruiters:TestEmployerI:9001', 'shortlisted', 'Example reason']);
+    ws.scout(['mark', 'smartrecruiters:TestEmployerI:9002', 'held', 'Over the weekly cap']);
+    const out = ws.scout(['runs']).trim().split('\n');
+    assert.equal(out[0], 'Scout runs (the last 2 of 2):');
+    assert.match(out[1], /^ {2}\d{4}-\d{2}-\d{2} \d{2}:\d{2} {2}15 employers, 97 fetched, 23 passed the screens, 21 new, 0 held still listed, 0 closed; screening on the day's last run\. Warnings: none\.$/);
+    assert.match(out[2], /, 0 new, 0 held still listed, 1 closed; screened since: 1 shortlisted, 2 dropped, 1 held, 18 not screened yet\. Warnings: empty 1; short 1\.$/);
+    assert.equal(ws.scout(['runs', '1']).trim().split('\n').length, 2, 'the last one only');
+    // A data file, so the index and the doctor don't list it.
+    ws.run('tracker');
+    assert.doesNotMatch(ws.read('INDEX.md'), /scout-runs/);
+    assert.doesNotMatch(ws.run('doctor'), /scout-runs/);
   } finally { ws.cleanup(); }
 });

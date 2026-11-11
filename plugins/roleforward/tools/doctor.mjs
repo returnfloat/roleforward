@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Checks that RoleForward can run here: Node, Chrome, and, inside a workspace, workspace.yaml against the settings
-// schema below, the files it names, the career direction file, the watchlist, and the feed validation. It changes
-// nothing. Problems stop something from working; warnings are worth a look. Lines marked "claude" are checks only
+// schema below, the files it names, the career direction file, the watchlist, the feed validation, and the title
+// audit. It changes nothing. Problems stop something from working; warnings are worth a look. Lines marked "claude" are checks only
 // Claude can make, such as the Google Sheets connector.
 //
 // Usage: node <plugin>/tools/doctor.mjs            (from inside the workspace, or anywhere for the system checks)
@@ -13,6 +13,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { findChrome, findWorkspace, get as dig, parseYaml, CHROME_HELP, PLUGIN } from './workspace.mjs';
 import { MAX_PLACES, PLACES } from './places.mjs';
+import { titleFingerprint } from './screen.mjs';
 
 export const MIN_NODE = 18;
 // The scout's source types, kept in step with FEEDS in scout.mjs, plus manual reminders.
@@ -202,6 +203,13 @@ async function workspace(root) {
     for (const [s] of down) say('warn', `Feed validation (${v.date}): ${s} was under maintenance. Run scout.mjs validate again.`);
     if (days > 30) say('warn', `Feed validation last ran ${days} days ago. Run scout.mjs validate.`);
     else if (!fail.length && !down.length) say('ok', `Feed validation (${v.date}): all ${res.length} source types passed`);
+  }
+  const af = join(root, 'applications', 'data', 'title-audit.json');
+  if (existsSync(af)) {
+    const a = JSON.parse(readFileSync(af, 'utf8')), days = Math.round((Date.now() - Date.parse(a.date)) / 864e5);
+    if (a.patterns !== titleFingerprint(get)) say('warn', `Title audit (${a.date}): scout.title_all or scout.title_none changed since. Run scout.mjs audit.`);
+    else if (days > 30) say('warn', `Title audit last ran ${days} days ago. Run scout.mjs audit.`);
+    else say('ok', `Title audit (${a.date}): current with the title patterns`);
   }
 
   // Optional modules: only what's turned on.

@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseYaml, get } from '../plugins/roleforward/tools/workspace.mjs';
-import { screens } from '../plugins/roleforward/tools/screen.mjs';
+import { screens, titleAudit, auditLines, collapseTitles, titleKey, titleFingerprint } from '../plugins/roleforward/tools/screen.mjs';
 import { buildWorkspace } from './fixture.mjs';
 
 const ws = buildWorkspace();
@@ -33,6 +33,81 @@ test('the place screen: a listed place or nearby name, remote at home, or just t
     assert.equal(placeOk(ok), true, ok);
   for (const no of ['Other City, ST', 'Remote - London', 'Remote, Canada', 'Germany', 'London, United Kingdom; remote', 'Remote - EMEA'])
     assert.equal(placeOk(no), false, no);
+});
+
+// ---- The title audit (scout.mjs audit) ----
+
+// The fixture's settings, with the scout's title patterns replaced.
+const withTitles = (scout) => { const c = structuredClone(cfg); c.scout = { ...c.scout, ...scout }; return (p, f) => get(c, p, f); };
+const P = (company, title, location = 'Remote, US', n) => ({ company, title, location, ...(n ? { n } : {}) });
+
+test('near-identical titles collapse into one line, most postings first', () => {
+  assert.equal(titleKey('Senior Data Engineer (R-12345)'), titleKey('senior data engineer'));
+  assert.equal(titleKey('Senior Data Engineer, Req 2026-0042'), 'senior data engineer');
+  assert.notEqual(titleKey('Data Engineer II'), titleKey('Data Engineer'), 'a level is not a requisition number');
+  const lines = collapseTitles([P('Employer A', 'Lead Data Engineer'), P('Employer B', 'Lead Data Engineer', '', 2), P('Employer C', 'lead data engineer - R-90001'),
+    P('Employer B', 'Example Role'), P('Employer D', 'Lead Data Engineer')]);
+  assert.deepEqual(lines, [
+    { title: 'Lead Data Engineer', count: 5, companies: ['Employer B', 'Employer A', 'Employer C', 'Employer D'] },
+    { title: 'Example Role', count: 1, companies: ['Employer B'] },
+  ]);
+});
+
+test('the audit groups titles that fail one title_all pattern, and titles title_none excludes', () => {
+  const a = titleAudit(withTitles({}), [
+    P('Employer A', 'Lead Data Engineer'), P('Employer B', 'Data Engineer'), P('Employer C', 'Senior Software Engineer'),
+    P('Employer A', 'Senior Data Engineer'), P('Employer B', 'Senior Data Sales Engineer', 'Remote, US', 2), P('Employer C', 'Staff Data Engineering Intern'),
+    P('Employer D', 'Example Recruiter'), P('Employer D', 'Data Engineer', 'London, United Kingdom'), P('Employer D', 'Data Sales Intern'),
+  ]);
+  assert.deepEqual([a.looked, a.placed, a.passed], [10, 9, 2], 'a posting in the wrong place is left out');
+  assert.deepEqual(a.oneAll.map((g) => [g.label, g.count, g.lines.map((l) => l.title)]), [
+    ['\\bdata\\b', 1, ['Senior Software Engineer']],
+    ['\\b(senior|staff|lead|principal)\\b', 1, ['Data Engineer']],
+  ], 'equal counts keep the order of the settings');
+  assert.deepEqual(a.none.map((g) => [g.label, g.count]), [['sales', 2], ['intern', 1]], 'grouped by the words title_none matched');
+  const out = auditLines(a).join('\n');
+  assert.match(out, /^10 postings looked at, 9 in a place that fits, 2 of those passed the title screen\. Near misses: 2 failed one title_all pattern, 3 excluded by title_none\.\n/);
+  assert.match(out, /\n  Matched "sales" \(2 postings, 1 title\):\n {7}2  Senior Data Sales Engineer  \(Employer B\)\n/);
+  assert.doesNotMatch(out, /Lead Data Engineer|Example Recruiter|Data Sales Intern/, 'a pass, two misses, and a title_none match failing title_all are not near misses');
+});
+
+test('each group shows its first titles and how many more, unless --all', () => {
+  const ps = Array.from({ length: 20 }, (_, i) => P(`Employer ${i % 4}`, `Example Data Role ${String.fromCharCode(65 + i)}`, 'Remote, US', 20 - i));
+  ps.push(...['Employer A', 'Employer B', 'Employer C', 'Employer D', 'Employer E'].map((c) => P(c, 'Example Data Role A')));
+  const a = titleAudit(withTitles({}), ps);
+  const short = auditLines(a);
+  assert.equal(short.filter((l) => /^ {4} +\d+  Example Data Role/.test(l)).length, 15);
+  assert.ok(short.includes('    and 5 more titles (--all shows every title)'));
+  assert.ok(short.includes('      25  Example Data Role A  (Employer 0, Employer A, Employer B +3 more)'), short.join('\n'));
+  assert.equal(auditLines(a, { all: true }).filter((l) => /Example Data Role/.test(l)).length, 20);
+});
+
+test('with one title_all pattern, only the title_none part is shown', () => {
+  const a = titleAudit(withTitles({ title_all: ['\\bdata\\b'] }), [P('Employer A', 'Senior Software Engineer'), P('Employer A', 'Data Sales Lead'), P('Employer B', 'Data Engineer')]);
+  assert.equal(a.oneAll, null);
+  assert.deepEqual(a.none.map((g) => g.label), ['sales']);
+  const out = auditLines(a).join('\n');
+  assert.match(out, /Near misses: title_all check skipped, 1 excluded by title_none\./);
+  assert.match(out, /scout\.title_all has one pattern, so every title that misses it would count as a near miss\. That part is left out\./);
+  assert.doesNotMatch(out, /Senior Software Engineer/);
+});
+
+test('with no title_none, only the title_all part is shown, and with no title_all, nothing passes', () => {
+  const a = titleAudit(withTitles({ title_none: '' }), [P('Employer A', 'Data Engineer'), P('Employer A', 'Senior Data Sales Engineer')]);
+  assert.equal(a.none, null);
+  assert.equal(a.passed, 1, 'nothing is excluded');
+  assert.match(auditLines(a).join('\n'), /no title_none\.[\s\S]*\nscout\.title_none is empty, so it excludes nothing\.$/);
+  const empty = auditLines(titleAudit(withTitles({ title_all: [] }), [P('Employer A', 'Senior Data Engineer')])).join('\n');
+  assert.match(empty, /0 of those passed the title screen/);
+  assert.match(empty, /scout\.title_all is empty, so no title passes the screen/);
+});
+
+test('the title fingerprint changes with either title setting, and only with them', () => {
+  const base = titleFingerprint(withTitles({}));
+  assert.match(base, /^[0-9a-f]{12}$/);
+  assert.equal(titleFingerprint(withTitles({ max_shortlist: 3 })), base);
+  assert.notEqual(titleFingerprint(withTitles({ title_none: '\\bintern\\b' })), base);
+  assert.notEqual(titleFingerprint(withTitles({ title_all: ['\\bdata\\b'] })), base);
 });
 
 test('readDirection reads the dealbreakers and preferences', () => {

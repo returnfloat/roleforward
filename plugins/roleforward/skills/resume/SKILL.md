@@ -10,7 +10,7 @@ description: Maintains the workspace owner's career record and everything built 
 - **The workspace** is the current folder (or the nearest parent with a `workspace.yaml`). From `workspace.yaml`, `files.portfolio` is the source of facts, `files.resume` is the default resume, `files.guide` holds the house rules and audit rubric, `files.linkedin` is the LinkedIn copy, and `person.file_stem` names the output files.
 - **The workspace's own instructions win.** The workspace's `CLAUDE.md` (its standing instructions and sync rule) and `MEMORY.md` (status and preferences) override this skill where they conflict.
 - **Scripts** live in the plugin's `tools/` folder, two levels above this skill's base directory. Run them from the workspace root, for example `node <tools>/render.mjs`.
-- **Setup trouble:** when a script fails in a way that points to setup (no Chrome, a setting it can't read, a source the scout doesn't know), run `node <tools>/doctor.mjs` (`<tools>` is the plugin's `tools/` folder). It checks Node, Chrome, `workspace.yaml` against every setting the plugin reads, the files it names, the career direction file, and the watchlist, and changes nothing. Fix what it calls a problem before going on.
+- **Setup trouble:** when a script fails in a way that points to setup, run `node <tools>/doctor.mjs`, which changes nothing, and fix what it calls a problem.
 
 ## How Facts Flow
 

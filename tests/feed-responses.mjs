@@ -11,6 +11,7 @@
 //   eightfold-retry-after the first Eightfold search request gets a 429 asking for a 7-second wait
 //   eightfold-429-later   every Eightfold search page after the first gets a 429
 //   greenhouse-detail-503 Greenhouse's job-detail endpoint answers 503 (a posting whose state can't be told)
+//   workday-capped        Workday reports 250 postings for the search, more than the 200 the scout reads
 //
 // A job that doesn't exist gets each site's own "gone" answer, as the live sites gave it on 2026-10-18: a 404 from most
 // (the default below), no items from Oracle, a redirect to /errorpage/ from SuccessFactors, the search page from Google,
@@ -95,6 +96,9 @@ const WORKDAY = Array.from({ length: 45 }, (_, i) => {
 WORKDAY[0] = { title: 'Senior Data Engineer', externalPath: '/job/Example-City-ST/Senior-Data-Engineer_test-wd-01', locationsText: 'Example City, ST', postedOn: 'Posted Today', bulletFields: ['test-wd-01'] };
 WORKDAY[1] = { title: 'Staff Data Engineer', externalPath: '/job/Remote/Staff-Data-Engineer_test-wd-02', postedOn: 'Posted Yesterday', bulletFields: ['test-wd-02', 'Remote, US'] };
 WORKDAY[40] = { title: 'Lead Data Engineer', externalPath: '/job/Example-City-ST/Lead-Data-Engineer_test-wd-41', postedOn: 'Posted 30+ Days Ago', bulletFields: ['test-wd-41'] };
+// 250 postings, so the search comes back at the scout's cap of 200.
+const WORKDAY_CAPPED = [...WORKDAY, ...Array.from({ length: 205 }, (_, i) => ({ title: `Example Role ${i + 46}`, externalPath: `/job/Example-City-ST/Example-Role-${i + 46}_test-wd-${i + 46}`,
+  locationsText: 'Example City, ST', postedOn: 'Posted 3 Days Ago', bulletFields: [`test-wd-${i + 46}`] }))];
 // Still open, but older than anything the search returns: only its own detail endpoint knows it.
 const WORKDAY_OLD = { title: 'Senior Data Engineer, Archive', externalPath: '/job/Example-City-ST/Senior-Data-Engineer-Archive_test-wd-99', locationsText: 'Example City, ST', postedOn: 'Posted 30+ Days Ago' };
 
@@ -244,8 +248,8 @@ export function respond(url, init, on) {
     case 'test-employer-d.wd1.myworkdayjobs.com': {
       if (on.has('workday-down')) return { redirect: 'https://community.workday.com/maintenance-page', text: '<html>Example maintenance page</html>' };
       if (path === '/wday/cxs/test-employer-d/Careers/jobs' && init.method === 'POST') {
-        const { offset = 0, limit = 20 } = JSON.parse(init.body);
-        return { json: { total: offset ? 0 : WORKDAY.length, jobPostings: WORKDAY.slice(offset, offset + limit), facets: [], userAuthenticated: false } };
+        const { offset = 0, limit = 20 } = JSON.parse(init.body), list = on.has('workday-capped') ? WORKDAY_CAPPED : WORKDAY;
+        return { json: { total: offset ? 0 : list.length, jobPostings: list.slice(offset, offset + limit), facets: [], userAuthenticated: false } };
       }
       const j = [...WORKDAY, WORKDAY_OLD].find((x) => path === `/wday/cxs/test-employer-d/Careers${x.externalPath}`);
       return j && { json: { jobPostingInfo: { id: 'x', title: j.title, jobDescription: para(160), location: j.locationsText ?? 'Remote, US', additionalLocations: ['Remote, US'],

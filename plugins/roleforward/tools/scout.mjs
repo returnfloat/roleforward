@@ -11,12 +11,23 @@
 //   node tools/scout.mjs capture <key> <folder>     write <folder>/jd.md for a posting (also works from /apply)
 //   node tools/scout.mjs mark <key> <decision> "<reason>"   decision: dropped | held | shortlisted
 //   node tools/scout.mjs closed                     whether each posting awaiting a decision is open, closed, or unclear
+//   node tools/scout.mjs runs [n]                   the last n runs (8 by default), one line each, with how the postings
+//                                                   each run found were screened since (from seen.csv)
 //   node tools/scout.mjs validate                   open one real posting per source type end to end (monthly, or after a warning)
+//   node tools/scout.mjs audit [--all]              the title screen's near misses in the last run's postings (monthly, or
+//                                                   after a change to scout.title_all or scout.title_none)
 //
 // Every run also checks each feed for silent failures: [empty] (nothing came back), [short] (fewer postings than the
 // site reports), [repeat] (duplicate pages), [drop] (far below its usual count), and [partial] (a site refused later
 // pages). Counts are kept in applications/data/feed-health.csv. Postings awaiting a decision are checked on their own
 // ([closed] postings are marked expired, and [check] flags one that stays unclear).
+//
+// Every run also adds one line to applications/data/scout-runs.csv, the run history: when it ran, how many employers and
+// postings it fetched, how many passed the screens, were new, were held and still listed, or closed, and its warnings by
+// kind. The screening that follows (shortlisted, dropped, held) is in seen.csv, by the date each posting was first seen.
+//
+// Every run also saves each fetched posting's employer, title, and place to applications/data/scout-postings.json.gz
+// (replaced each run), with each search term that came back at a site's cap, so audit can show what the title screen hid.
 //
 // Sources: greenhouse, ashby, lever, workday, talentbrew, eightfold, smartrecruiters, oracle, successfactors, icims,
 // amazon, google, apple, and page (the fallback for any other careers site), plus manual reminders.
@@ -25,12 +36,14 @@
 
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { gunzipSync, gzipSync } from 'node:zlib';
 import { readCsv, writeCsv } from './csv.mjs';
 import { readFrontmatter, parseEvent, appendEvent } from './frontmatter.mjs';
 import { loadWorkspace } from './workspace.mjs';
 import { visaOn, sponsorshipText, historyLine, deadlineLine } from './visa.mjs';
-import { screens } from './screen.mjs';
+import { screens, titleAudit, auditLines, titleFingerprint } from './screen.mjs';
 import { parsePay, payFit, payText } from './pay.mjs';
+import { BEFORE_APPLYING } from './records.mjs';
 export { parsePay };
 
 const { root, get: cfg } = loadWorkspace();
@@ -40,6 +53,13 @@ const SEEN = join(apps, 'data', 'seen.csv');
 const HEALTH = join(apps, 'data', 'feed-health.csv');
 const HEALTH_COLS = ['company', 'source', 'board', 'last_run', 'last_count', 'expected', 'recent'];
 const VALIDATED = join(apps, 'data', 'feed-validation.json');
+// The last run's postings, for the title audit, and the date and title patterns of the last audit.
+const SAVED = join(apps, 'data', 'scout-postings.json.gz');
+const AUDITED = join(apps, 'data', 'title-audit.json');
+// The run history: one line per run.
+const RUNS = join(apps, 'data', 'scout-runs.csv');
+const RUNS_COLS = ['run', 'employers', 'fetched', 'matched', 'new', 'held', 'closed', 'warnings'];
+const WARNING_KINDS = ['error', 'down', 'empty', 'short', 'partial', 'repeat', 'drop', 'check'];
 const SEEN_COLS = ['key', 'company', 'title', 'location', 'posted', 'url', 'first_seen', 'last_seen', 'decision', 'reason'];
 const today = new Date().toLocaleDateString('en-CA');
 const UA = { 'user-agent': 'Mozilla/5.0 (Macintosh) roleforward-scout' };
@@ -85,8 +105,12 @@ const get = async (url, opt = {}) => {
 };
 const json = async (url, opt) => (await get(url, opt)).json();
 
-// Records how many postings a feed says it has (capped at what we fetch), so a run can spot incomplete fetches.
-const expect = (total, cap, list) => { if (Number.isFinite(+total) && total !== null) list.expected = Math.min(+total, cap); return list; };
+// Records how many postings a feed says it has (capped at what we fetch), so a run can spot incomplete fetches. A total
+// above the cap means the search came back at its cap, and the postings past it were never seen.
+const expect = (total, cap, list) => {
+  if (Number.isFinite(+total) && total !== null) { list.expected = Math.min(+total, cap); if (+total > cap) list.capped = +total; }
+  return list;
+};
 
 // ---- Watchlist ----
 function watchlist() {
@@ -296,6 +320,8 @@ const FEEDS = {
           posted: when ? `${when[3]}-${when[1].padStart(2, '0')}-${when[2].padStart(2, '0')}` : '' });
       }
       const pages = +(html.match(/Page \d+ of (\d+)/)?.[1] ?? 1);
+      // iCIMS reports pages, not postings: more than ten pages means the search came back at its cap.
+      if (!page && pages > 10) out.capped = true;
       if (page + 1 >= pages || !cards.length) break;
     }
     return out;
@@ -375,6 +401,7 @@ async function fetchFeed(source, board) {
     const jobs = await FEEDS[source](board, term);
     out.expected = Math.max(out.expected ?? 0, jobs.expected ?? 0) || undefined;
     if (jobs.partial) out.partial = `"${term}": ${jobs.partial}`;
+    if (jobs.capped) (out.capped ??= []).push({ term, got: jobs.length, total: jobs.capped === true ? null : jobs.capped });
     for (const j of jobs) if (!seenIds.has(j.id)) { seenIds.add(j.id); out.push(j); }
   }
   return out;
@@ -480,6 +507,8 @@ async function pageDetail(s, source) {
 const CLOSURE = join(apps, 'data', 'closure-checks.csv');
 const CLOSURE_COLS = ['folder', 'unknown_runs', 'last_checked', 'last_reason'];
 const CHECK_AFTER = 3;
+// A posting awaits a decision before an application (shortlisted, interested, or in conversation). Only one with a scout
+// key or a posting link can be checked: a lead from a conversation usually has neither, and is never expired for it.
 function awaiting() {
   const out = [];
   for (const c of readdirSync(apps, { withFileTypes: true }).filter((d) => d.isDirectory() && d.name !== 'data'))
@@ -488,7 +517,7 @@ function awaiting() {
       if (!existsSync(file)) continue;
       const { data } = readFrontmatter(file);
       const last = (data.events || []).map(parseEvent).at(-1);
-      if (['shortlisted', 'interested'].includes(last?.stage)) out.push({ folder: `applications/${c.name}/${p.name}`, key: data.scout_key, url: data.posting, company: data.company, role: data.role });
+      if (BEFORE_APPLYING.includes(last?.stage) && (data.scout_key || data.posting)) out.push({ folder: `applications/${c.name}/${p.name}`, key: data.scout_key, url: data.posting, company: data.company, role: data.role });
     }
   return out;
 }
@@ -565,6 +594,8 @@ if (!cmd) {
   const errors = [], fresh = [], counts = {}, warnings = [], down = {};
   const health = new Map(readCsv(HEALTH).map((r) => [r.company, r]));
   let fetched = 0, matched = 0, placeDrops = 0, freshDrops = 0;
+  // For the title audit: each fetched posting once per employer, title, and place, with a count, and the capped searches.
+  const saved = new Map(), capped = [], missed = [];
   await Promise.all(watchlist().map(async (w) => {
     try {
       const jobs = await fetchFeed(w.source, w.board);
@@ -582,8 +613,11 @@ if (!cmd) {
       if (prev.length >= 2 && med >= 10 && unique < 0.4 * med)
         warnings.push(`[drop] ${w.company}: ${unique} postings vs. a usual ${med}. The site may have changed.`);
       health.set(w.company, { company: w.company, source: w.source, board: w.board, last_run: today, last_count: unique, expected: jobs.expected ?? '', recent: [...prev, unique].slice(-6).join(' ') });
+      for (const c of jobs.capped ?? []) capped.push({ company: w.company, ...c });
       for (const j of jobs) {
         const key = `${w.source}:${w.board}:${j.id}`;
+        const s = JSON.stringify([w.company, String(j.title ?? ''), String(j.location ?? '')]);
+        saved.set(s, (saved.get(s) ?? 0) + 1);
         if (!titleOk(j.title)) continue;
         // A matching title that's remote, but only in another country, is dropped and kept as one seen.csv line, so the
         // user can check the country call. An office somewhere else is only counted.
@@ -599,12 +633,17 @@ if (!cmd) {
         if (fits) fresh.push(row); else freshDrops++;
       }
     } catch (e) {
+      missed.push(w.company);
       if (e.down) (down[w.source] ??= []).push(w.company);
       else errors.push(`${w.company} (${w.source} ${w.board}): ${e.message}`);
     }
   }));
   mkdirSync(dirname(SEEN), { recursive: true });
   writeCsv(SEEN, SEEN_COLS, [...seen.values()].sort((a, b) => a.company.localeCompare(b.company) || a.title.localeCompare(b.title)));
+  // Compact: employers by number, and identical postings once with a count.
+  const companies = [...new Set([...saved.keys()].map((s) => JSON.parse(s)[0]))].sort();
+  const postings = [...saved].map(([s, n]) => { const [c, t, l] = JSON.parse(s); return n > 1 ? [companies.indexOf(c), t, l, n] : [companies.indexOf(c), t, l]; });
+  writeFileSync(SAVED, gzipSync(JSON.stringify({ run: today, missed: missed.sort(), capped, companies, postings })));
   // Held postings come back for reconsideration while they're still listed.
   const held = [...seen.values()].filter((r) => r.decision === 'held' && r.last_seen === today);
   const pending = [...seen.values()].filter((r) => r.decision === 'new');
@@ -615,10 +654,21 @@ if (!cmd) {
   // A source that was under maintenance at the last validation still needs checking.
   const wasDown = Object.values(validated.results ?? {}).some((v) => v.startsWith('down'));
   const validationDue = !lastValidated || (Date.parse(today) - Date.parse(lastValidated)) / 864e5 > 30 || warnings.some((w) => !w.startsWith('[partial]')) || errors.length > 0 || wasDown;
+  // The title audit is due when it has never run, monthly, and whenever the title patterns change.
+  const audited = existsSync(AUDITED) ? JSON.parse(readFileSync(AUDITED, 'utf8')) : {};
+  const patternsChanged = !!audited.date && audited.patterns !== titleFingerprint(cfg);
+  const auditDue = !audited.date || (Date.parse(today) - Date.parse(audited.date)) / 864e5 > 30 || patternsChanged;
   const empty = Object.keys(counts).filter((c) => !counts[c]);
-  const out = { run: today, fetched, matched, new: fresh.length, place_drops: freshDrops, to_screen: pending, held, closed, check, errors, down, warnings, empty, counts, last_validated: lastValidated, validation_due: validationDue };
+  const out = { run: today, fetched, matched, new: fresh.length, place_drops: freshDrops, to_screen: pending, held, closed, check, errors, down, warnings, empty, counts, capped,
+    last_validated: lastValidated, validation_due: validationDue, last_audit: audited.date ?? '', audit_due: auditDue };
   mkdirSync(join(root, 'output', 'scout'), { recursive: true });
   writeFileSync(join(root, 'output', 'scout', 'latest.json'), JSON.stringify(out, null, 2));
+  // The run history, one line per run. Warnings by kind: each [down] employer counts once.
+  const kinds = { error: errors.length, down: Object.values(down).flat().length, empty: empty.length, check: check.length };
+  for (const w of warnings) { const k = w.match(/^\[(\w+)\]/)?.[1]; if (k) kinds[k] = (kinds[k] ?? 0) + 1; }
+  const now = new Date(), time = `${today} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+  writeCsv(RUNS, RUNS_COLS, [...readCsv(RUNS), { run: time, employers: watchlist().length - missed.length, fetched, matched, new: fresh.length, held: held.length, closed: closed.length,
+    warnings: WARNING_KINDS.filter((k) => kinds[k]).map((k) => `${k} ${kinds[k]}`).join('; ') }]);
   if (visaOn() && deadlineLine()) console.log(deadlineLine());
   console.log(`Scout ${today}: ${fetched} postings fetched from ${watchlist().length} companies, ${matched} matched the title and location screen, ${fresh.length} new.`
     + (placeDrops ? ` ${placeDrops} more had a matching title in the wrong place${freshDrops ? ` (${freshDrops} new remote roles in another country, recorded as dropped: Wrong place)` : ''}.` : ''));
@@ -633,6 +683,7 @@ if (!cmd) {
   // A board that returns nothing usually means a changed board name or page layout, not zero openings.
   for (const c of empty) console.log(`  [empty] ${c}: the feed returned no postings. Check its board in the watchlist.`);
   console.log(`Feed validation: last run ${lastValidated || 'never'}.${validationDue ? ' Due now: run `scout.mjs validate` from the plugin tools folder.' : ''}`);
+  console.log(`Title audit: last run ${audited.date || 'never'}.${auditDue ? ` Due now${patternsChanged ? ' (scout.title_all or scout.title_none changed since)' : ''}: run \`scout.mjs audit\` from the plugin tools folder.` : ''}`);
   console.log('Details: output/scout/latest.json');
 } else if (cmd === 'show') {
   const d = await detail(args[0]);
@@ -701,6 +752,37 @@ ${d.body.replace(/\$/g, '\\$')}
   const nDown = Object.values(results).filter((v) => v.startsWith('down')).length;
   console.log(`Saved to applications/data/feed-validation.json. ${Object.values(results).filter((v) => v.startsWith('fail')).length} source type(s) failed.`
     + (nDown ? ` ${nDown} under maintenance: run validate again once ${nDown === 1 ? 'it is' : 'they are'} back.` : ''));
+} else if (cmd === 'audit') {
+  // The title screen's near misses, from the postings the last run saved, against the current settings.
+  if (!existsSync(SAVED)) { console.error('No saved postings yet. Run `scout.mjs` first: each run saves its postings for the audit.'); process.exit(1); }
+  const s = JSON.parse(gunzipSync(readFileSync(SAVED)));
+  const days = Math.round((Date.parse(today) - Date.parse(s.run)) / 864e5);
+  console.log(`Title audit of the scout run on ${s.run} (${days < 1 ? 'today' : days === 1 ? 'yesterday' : `${days} days ago`}).`
+    + (s.missed.length ? ` Not fetched that run: ${s.missed.join(', ')}.` : ''));
+  const a = titleAudit(cfg, s.postings.map(([c, title, location, n = 1]) => ({ company: s.companies[c], title, location, n })));
+  for (const l of auditLines(a, { all: args.includes('--all') })) console.log(l);
+  // A search that came back at a site's cap hid every posting past it, whatever the title screen says.
+  if (s.capped.length) {
+    console.log('\nSearches that came back at the site\'s cap (postings past it were never fetched):');
+    for (const c of s.capped) console.log(`  ${c.company}, "${c.term}": got ${c.got}${c.total ? ` of ${c.total.toLocaleString('en-US')}` : ', and the site has more'}`);
+  }
+  mkdirSync(dirname(AUDITED), { recursive: true });
+  writeFileSync(AUDITED, JSON.stringify({ date: today, patterns: titleFingerprint(cfg) }, null, 2) + '\n');
+  console.log('\nSaved to applications/data/title-audit.json.');
+} else if (cmd === 'runs') {
+  // Recent runs, oldest first, each with how the postings it found were screened. Several runs on one day share that
+  // day's postings, so the screening counts go on the day's last run.
+  const n = +args[0] > 0 ? +args[0] : 8, all = readCsv(RUNS), runs = all.slice(-n);
+  if (!runs.length) { console.log('No scout runs recorded yet. Each run of scout.mjs adds one line to applications/data/scout-runs.csv.'); process.exit(0); }
+  const seen = readCsv(SEEN), plural = (k, w) => `${k} ${w}${k === 1 ? '' : 's'}`;
+  console.log(`Scout runs (the last ${runs.length} of ${all.length}):`);
+  for (const [i, r] of runs.entries()) {
+    const date = r.run.slice(0, 10), lastOfDay = runs[i + 1]?.run.slice(0, 10) !== date;
+    const found = seen.filter((s) => s.first_seen === date), by = (d) => found.filter((s) => s.decision === d).length;
+    const screened = !lastOfDay ? 'screening on the day\'s last run' : !found.length ? 'nothing new to screen'
+      : `screened since: ${by('shortlisted')} shortlisted, ${by('dropped')} dropped, ${by('held')} held${by('new') ? `, ${by('new')} not screened yet` : ''}`;
+    console.log(`  ${r.run}  ${plural(+r.employers, 'employer')}, ${r.fetched} fetched, ${r.matched} passed the screens, ${r.new} new, ${r.held} held still listed, ${r.closed} closed; ${screened}. Warnings: ${r.warnings || 'none'}.`);
+  }
 } else if (cmd === 'closed') {
   for (const s of (await closureChecks(false)).states) console.log(`${s.state.padEnd(7)} ${s.folder}${s.why ? ` (${s.why})` : ''}`);
 } else {

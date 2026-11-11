@@ -16,7 +16,7 @@ description: Optional personal website built from the workspace owner's default 
 - **Colors** come from the `theme` section (`primary` and `accent`), shared with the tracking sheet and usually chosen during onboarding.
 - **Deployment notes** live in the workspace, usually in `MEMORY.md`. They cover the host, accounts, and commands. They're the user's own setup, so never guess them, and never assume a particular host.
 - **Scripts** live in the plugin's `tools/` folder, two levels above this skill's base directory.
-- **Setup trouble:** when a script fails in a way that points to setup (no Chrome, a setting it can't read, a source the scout doesn't know), run `node <tools>/doctor.mjs` (`<tools>` is the plugin's `tools/` folder). It checks Node, Chrome, `workspace.yaml` against every setting the plugin reads, the files it names, the career direction file, and the watchlist, and changes nothing. Fix what it calls a problem before going on.
+- **Setup trouble:** when a script fails in a way that points to setup, run `node <tools>/doctor.mjs`, which changes nothing, and fix what it calls a problem.
 
 ## What the Site Gets
 
@@ -60,22 +60,8 @@ Don't impose a design. Narrow it down with the user in a few short rounds, using
 
 - **Content updates** (a re-rendered page or PDF): follow the workspace's deploy notes, then verify the live site matches the local files. Deploy only files that changed.
 - **Hosting changes** (a new domain, bucket, DNS, CDN, or access policy): back up first, show a dry run and a full plan, and change nothing until the user approves.
-- **A user with no hosting yet:** follow Hosting Setup below.
+- **A user with no hosting yet:** follow Hosting Setup below (`hosting.md`).
 
 ## Hosting Setup (guided, first time)
 
-The site is a folder of static files (`website/`), so any static host works. Walk the user through it one step at a time, and let them make each choice. They create accounts and enter payment details themselves; never do either for them.
-
-1. **Decide whether it goes live now.** The rendered site works locally, so publishing can wait. Ask before going further.
-2. **The address.** Ask whether they own a domain.
-   - **No domain:** offer to start on the host's free address (for example `<name>.github.io` or `<name>.pages.dev`) and add a domain later, or to buy one now from a registrar (a .com is usually around $10 to $20 a year; check current prices).
-   - **A domain:** note where it's registered and where its DNS is managed, since step 5 changes DNS records there.
-3. **The host.** Explain three or four options in plain terms, with what each needs and roughly what it costs, and recommend the simplest one that fits:
-   - **GitHub Pages:** free for a public repository. Needs a GitHub account and git.
-   - **Cloudflare Pages or Netlify:** free tiers, with drag-and-drop or command-line deploys and automatic HTTPS.
-   - **A cloud storage bucket behind a CDN** (for example AWS S3 with CloudFront or Cloudflare): pennies a month, with the most setup and the most control.
-   Check current free-tier terms on the host's own site before recommending one, since they change.
-4. **First deploy.** Use the host's own deploy route. If it needs a command-line tool, say what it is, its size, and where it installs, and wait for an OK. Upload only the contents of `website/`, never anything else in the workspace.
-5. **Connect the domain,** if they have one: add the DNS records the host asks for, wait for HTTPS to come up, and decide with them whether `www` redirects to the bare domain or the other way around.
-6. **Check it live:** load the site, compare the live files with the local ones, and check the PDF link, the 404 page, and phone width.
-7. **Write the deploy notes** into the workspace's MEMORY.md: the host, the account (never passwords or keys), where DNS lives, and the exact commands or steps for a content update. Later updates follow these notes.
+When the user has no hosting yet, read `hosting.md` next to this file and walk them through it one step at a time, letting them make each choice. They create accounts and enter payment details themselves; never do either for them.

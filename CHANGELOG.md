@@ -2,6 +2,19 @@
 
 Every RoleForward release, newest first. RoleForward follows [semantic versioning](https://semver.org): within a major version, your workspace's settings and files keep working as they are.
 
+## 1.3.0
+
+- **Leads without a posting (new):** a role someone describes to you, or a recruiter's message, gets a record through `lead.mjs`. A new `conversation` stage sits between `interested` and `applied`, and a `lead.md` records what was said about the role, by whom, what's still unknown, and the questions to ask, dealbreakers first.
+- **Next actions (new):** each posting can carry a `next` date and action, set with `next.mjs` and proposed whenever a stage is logged. The tracker's Needs Attention list and the scout's report show what's overdue or due soon, and a decision left waiting a week is flagged. A next action set for a later date quiets the "no update in 21 days" flag.
+- **A Next column on the sheet's Shortlist:** it sits after Last event. For a sheet made before this release, the next sync adds the column with `sheet.mjs upgrade`. This resets the Shortlist's color rules, so one you added yourself is listed for you first, and clears that tab's filter choices once.
+- **The offer stage (new):** an `offer.md` for the terms, the answer deadline, promises made in conversation and whether the written offer includes them, a comparison with your Preferences and current role, and a negotiation plan. Pay figures stay out of the file unless you say to save them. The tracker flags an offer with no `offer.md`.
+- **Title screen audit (new):** `scout.mjs audit` shows the titles the keyword screen nearly let through (one `title_all` pattern short, or excluded by `title_none`), collapsed and counted, and the searches that hit a site's cap. Each run saves its postings for it, and the run and the doctor say when it's due: monthly, or after a title pattern change.
+- **The scout keeps its own run history:** one line per run in `applications/data/scout-runs.csv`, shown with `scout.mjs runs`. A run no longer adds a report to `MEMORY.md`. It keeps one "Last scout run" line there up to date, and older run reports can be removed.
+- **A smaller sheet sync:** a routine sync reads only the columns you can edit and rewrites only the tabs that changed, so when nothing changed it writes nothing. Checking the sheet for hand edits outside those columns now runs when you ask.
+- **The skills load less on everyday tasks:** setup, discovery, scheduling, feed help, application preparation, and new-workspace onboarding moved into files read only when needed.
+- **Closure checks cover postings in conversation,** and a lead with no posting link is never expired.
+- **Search caps described correctly:** onboarding said every searchable site returns the newest 200 postings per term. The caps run from 200 to 1,000 by job system, as the README's Job Sources table lists.
+
 ## 1.2.1
 
 - **Pay written as "between $X and $Y" is read:** a posting that gave its range as "between $272,000 USD and $408,000 USD" showed as "Pay: not published", so a pay floor could drop it (with `unlisted: drop`) or miss that it pays too little. A range in another currency beside it, such as CAD, is still left out, and "between X and Y" without a $ or USD isn't taken for pay.

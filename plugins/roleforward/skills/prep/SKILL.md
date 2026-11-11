@@ -13,7 +13,7 @@ description: Builds and maintains the workspace owner's interview prep and learn
 - **Source material:** the portfolio holds the user's record, and its "if they probe" lines are the answer bank.
 - **The workspace's own instructions win.** The workspace's `CLAUDE.md` and `MEMORY.md` override this skill where they conflict.
 - **Practice log:** `practice/practice.csv`, kept by `node <tools>/practice.mjs` (`<tools>` is the plugin's `tools/` folder, two levels above this skill's base directory). Scoring rubrics are in `rubrics.md` next to this file.
-- **Setup trouble:** when a script fails in a way that points to setup (no Chrome, a setting it can't read, a source the scout doesn't know), run `node <tools>/doctor.mjs` (`<tools>` is the plugin's `tools/` folder). It checks Node, Chrome, `workspace.yaml` against every setting the plugin reads, the files it names, the career direction file, and the watchlist, and changes nothing. Fix what it calls a problem before going on.
+- **Setup trouble:** when a script fails in a way that points to setup, run `node <tools>/doctor.mjs`, which changes nothing, and fix what it calls a problem.
 
 ## The Format (keep it the same in every workspace)
 
@@ -42,7 +42,7 @@ description: Builds and maintains the workspace owner's interview prep and learn
 
 ## Prepping for a Specific Interview
 
-- **Material:** use the posting's frozen `resume.md`, `jd.md`, and `answers.md` (run `freeze.mjs --check` first), plus `company.md`.
+- **Material:** use the posting's frozen `resume.md`, `jd.md` (or `lead.md`, for a lead with no posting), and `answers.md` (run `freeze.mjs --check` first), plus `company.md`.
 - **Their sent resume:** pick the 4 to 6 stories that best match the posting's must-haves, and rehearse the "if they probe" answers for every number on the resume they sent.
 - **Practice in the loop's formats:** plan practice rounds between now and the interview date, starting with what `practice.mjs due` lists in those formats, and finish with one full mock of the hardest round a day or two before.
 - **Their questions:** turn company.md's open questions into questions for each interviewer. Put the user's dealbreaker questions first, for example on-call or travel, from the Dealbreakers in the career direction file.

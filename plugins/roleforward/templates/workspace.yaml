@@ -116,7 +116,7 @@ drive:                              # a Google Drive folder with the sheet and a
   # folder_id:                      # set by the sheet skill when it creates the folder
   # archive_id:                     # its Archive folder, where packets go when a posting ends
 
-schedule:                           # Claude Code Desktop scheduled tasks, each off until set up; see the scout skill's Scheduled Runs
+schedule:                           # Claude Code Desktop scheduled tasks, each off until set up; see the scout skill's scheduling.md
   scout:
     enabled: false                  # true once the task is set up in Desktop (Desktop holds the live schedule)
     every: weekly                   # daily, weekdays, weekly, or monthly
