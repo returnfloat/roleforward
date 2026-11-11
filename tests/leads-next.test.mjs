@@ -152,7 +152,7 @@ test('next.mjs list: overdue, then due soon, then later, then none, one line eac
     assert.equal(lines[0], `overdue   ${daysAgo(2)}  Employer C, Lead Data Engineer: Follow up with the recruiter (recruiter-screen for 25 days, ${ws.folder('employer-c').replace('applications/', '')})`);
     assert.match(lines[1], /^due soon  \d{4}-\d{2}-\d{2}  Employer B, Staff Data Engineer: Apply \(interested for 6 days, /);
     assert.match(lines[2], /Employer Q, Head of Data: Check back with the contact \(conversation for 2 days, /);
-    assert.match(lines[3], /^none      -           Employer A, Senior Data Engineer: no next action \(shortlisted for 3 days, /);
+    assert.match(lines[3], /^none      -           Employer A, Senior Data Engineer: none set \(suggested: Decide: interested or pass, \d{4}-\d{2}-\d{2}\) \(shortlisted for 3 days, /);
     assert.doesNotMatch(lines.join('\n'), /Employer D/, 'ended postings are left out');
   } finally { ws.cleanup(); }
 });
@@ -163,7 +163,7 @@ test('next.mjs list --due: only the lines that need the user now, by the tracker
     // Shortlisted 3 days and interested 6: not yet. The application quiet for 25 days with no next action: yes.
     let lines = ws.run('next', ['list', '--due']).trim().split('\n');
     assert.deepEqual(lines.map((l) => l.split(/\s{2,}/)[0]), ['none']);
-    assert.match(lines[0], /Employer C, Lead Data Engineer: no next action \(recruiter-screen for 25 days, /);
+    assert.match(lines[0], /Employer C, Lead Data Engineer: none set \(suggested: Check back on the next step, \d{4}-\d{2}-\d{2}\) \(recruiter-screen for 25 days, /);
     ws.run('next', ['set', ws.folder('employer-c'), daysAgo(-10), 'Check back with the recruiter']);
     ws.run('next', ['set', ws.folder('employer-b'), daysAgo(1), 'Apply, or pass']);
     ws.run('next', ['set', ws.folder('employer-a'), daysAgo(-2), 'Decide on it']);
@@ -253,5 +253,23 @@ test('an offer with no offer.md needs attention, and offer.md never goes into a 
     ws.run('tracker');
     assert.doesNotMatch(attention(ws), /offer\.md/);
     assert.doesNotMatch(ws.run('docs', ['markdown', dir.replace('applications/', '')]), /Example offer term|## Terms/);
+  } finally { ws.cleanup(); }
+});
+
+test('a live posting with no next action shows the usual next step for its stage, marked as suggested', () => {
+  const ws = buildWorkspace();
+  try {
+    ws.run('tracker');
+    // Shortlisted 3 days ago: decide a week after it was shortlisted.
+    const cell = JSON.parse(ws.run('sheet', ['rows', 'shortlist'])).find((r) => r[0] === 'Employer A')[6];
+    assert.equal(cell, `${daysAgo(-4)} · Decide: interested or pass (suggested)`);
+    assert.match(ws.read('applications/tracker.md'), new RegExp(`\\| ${daysAgo(-4)}: Decide: interested or pass \\(suggested\\) \\|`));
+    // A suggestion is display only: it isn't written to the record or the data, and it never counts as waiting on purpose.
+    assert.equal(csvRow(ws, 'Employer A').next_date, '');
+    assert.match(attention(ws), /Employer C, Lead Data Engineer:\*\* no update in 25 days/);
+    // One the user sets replaces it, and an ended posting shows nothing.
+    ws.run('next', ['set', ws.folder('employer-a'), daysAgo(-1), 'Decide on it']);
+    assert.equal(JSON.parse(ws.run('sheet', ['rows', 'shortlist'])).find((r) => r[0] === 'Employer A')[6], `${daysAgo(-1)} · Decide on it`);
+    assert.doesNotMatch(ws.read('applications/tracker.md'), /Employer D[^\n]*\(suggested\)/);
   } finally { ws.cleanup(); }
 });

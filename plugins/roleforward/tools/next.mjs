@@ -8,7 +8,8 @@
 // - set and clear change only the next line and updated in posting.md, leaving every other byte as it was, then rebuild
 //   the tracker. set refuses a posting that has ended. clear works on any posting.
 // - list prints one line per live posting, for the user or another skill's report: overdue first, then due within 3
-//   days, then later, then live postings with no next action. Each line has the date, the posting, the action, its
+//   days, then later, then live postings with no next action, which show the usual next step for
+//   their stage as a suggestion. Each line has the date, the posting, the action, its
 //   current stage and how many days it has been there, and its folder. With --due, only the lines that need the user
 //   now: overdue, due soon, or not in the right format, and postings with no next action that the tracker's Needs
 //   Attention list shows (a decision left 7 days, or an application or conversation quiet for 21), for a run report.
@@ -19,7 +20,7 @@ import { execFileSync } from 'node:child_process';
 import { join, resolve } from 'node:path';
 import { readFrontmatter, setField } from './frontmatter.mjs';
 import { loadWorkspace, PLUGIN, relPath } from './workspace.mjs';
-import { LIVE, PIPELINE, eachPosting, eventsOf, stageOf, nextOf, isDate, daysBetween, today, SOON_DAYS, DECIDE_DAYS, STALE_DAYS } from './records.mjs';
+import { LIVE, PIPELINE, eachPosting, eventsOf, stageOf, nextOf, suggestedNext, isDate, daysBetween, today, SOON_DAYS, DECIDE_DAYS, STALE_DAYS } from './records.mjs';
 
 const fail = (msg) => { console.error(msg); process.exit(1); };
 const USAGE = 'Usage: node next.mjs set <posting folder> <YYYY-MM-DD> "<what happens next>" | clear <posting folder> | list [--due]';
@@ -57,6 +58,8 @@ function clear(root, folder) {
 const needsUser = (r) => (['shortlisted', 'interested'].includes(r.stage) && r.inStage >= DECIDE_DAYS)
   || ((r.stage === 'conversation' || PIPELINE.indexOf(r.stage) >= PIPELINE.indexOf('applied')) && r.inStage >= STALE_DAYS);
 
+const sug = (stage, since) => { const s = suggestedNext(stage, since); return s ? ` (suggested: ${s.action}, ${s.date})` : ''; };
+
 function list(root, due) {
   const now = today(), rows = [];
   for (const p of eachPosting(root)) {
@@ -65,7 +68,7 @@ function list(root, due) {
     const last = eventsOf(data).at(-1)?.date, n = nextOf(data);
     const inStage = last ? daysBetween(last, now) : 0;
     const when = !n ? 'none' : n.bad ? 'check' : n.date < now ? 'overdue' : daysBetween(now, n.date) <= SOON_DAYS ? 'due soon' : 'later';
-    rows.push({ when, date: n?.date ?? '', what: n?.bad ? `next isn't "YYYY-MM-DD | what happens next": ${n.bad}` : n?.action ?? 'no next action',
+    rows.push({ when, date: n?.date ?? '', what: n?.bad ? `next isn't "YYYY-MM-DD | what happens next": ${n.bad}` : n?.action ?? `none set${sug(stage, last)}`,
       name: `${data.company}, ${data.role}`, stage, inStage, id: p.id });
   }
   const ORDER = ['check', 'overdue', 'due soon', 'later', 'none'];

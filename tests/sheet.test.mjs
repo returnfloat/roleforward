@@ -21,7 +21,7 @@ test('Shortlist: live postings, the higher lower-score first, with the record ID
     assert.deepEqual(r.map((x) => [x[0], x[2], x[3], x[4]]), [
       ['Employer A', 'shortlisted', 4, 5], ['Employer C', 'recruiter-screen', 5, 3.4], ['Employer B', 'interested', 3, 3.6]]);
     assert.equal(r[0][5], `'${daysAgo(3)}`, 'dates are text');
-    assert.equal(r[0][6], '', 'no next action');
+    assert.equal(r[0][6], `${daysAgo(-4)} · Decide: interested or pass (suggested)`, 'no next action set, so the usual one for the stage');
     assert.equal(r[0][11], '', 'referral stays blank while only shortlisted');
     assert.equal(r[1][11], 'yes');
     assert.match(r[0][14], /^=HYPERLINK\("https:\/\/example\.invalid\/jobs\/1001","View posting"\)$/);

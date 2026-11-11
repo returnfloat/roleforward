@@ -48,6 +48,22 @@ export function parseNext(value) {
 // A posting's next action, which only a live posting has: on an ended one, a leftover next field is ignored.
 export const nextOf = (data) => (LIVE.includes(stageOf(data)) ? parseNext(data.next) : null);
 
+// What a live posting with no next action shows instead: the usual next step for its stage, dated from the day it
+// reached that stage. It's a suggestion for display. Only a next action the user set counts as waiting on purpose.
+const SUGGESTED = { shortlisted: [7, 'Decide: interested or pass'], interested: [7, 'Apply, or pass'], conversation: [7, 'Check back with your contact'],
+  applied: [14, 'Follow up if there\'s no reply'], offer: [7, 'Answer the offer'] };
+export function suggestedNext(stage, since) {
+  if (!LIVE.includes(stage) || !isDate(since)) return null;
+  const [n, action] = SUGGESTED[stage] ?? [7, 'Check back on the next step'];
+  return { date: new Date(day(since).getTime() + n * 864e5).toISOString().slice(0, 10), action };
+}
+// The Next cell for a tracker row (its status, last_event, next_date, and next_action): the set one, or the suggestion.
+export function nextCell(r, sep) {
+  if (r.next_date) return `${r.next_date}${sep}${r.next_action}`;
+  const s = suggestedNext(r.status, r.last_event);
+  return s ? `${s.date}${sep}${s.action} (suggested)` : '';
+}
+
 // Every posting.md in the workspace: { id (the Record ID, "<company>/<folder>"), dir, file, companyDir }.
 export function eachPosting(root) {
   const apps = join(root, 'applications'), out = [];

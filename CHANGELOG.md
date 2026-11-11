@@ -2,6 +2,10 @@
 
 Every RoleForward release, newest first. RoleForward follows [semantic versioning](https://semver.org): within a major version, your workspace's settings and files keep working as they are.
 
+## 1.3.1
+
+- **The Next column is never empty:** a live posting with no next action set now shows the usual next step for its stage, marked "(suggested)", in the sheet's Next column, the tracker's table, and `next.mjs list`. For example, a shortlisted posting shows a decision due a week after it was shortlisted, and an application shows a follow-up two weeks after you applied. A suggestion is display only: one you set replaces it, and only a set one quiets the "no update in 21 days" flag.
+
 ## 1.3.0
 
 - **Leads without a posting (new):** a role someone describes to you, or a recruiter's message, gets a record through `lead.mjs`. A new `conversation` stage sits between `interested` and `applied`, and a `lead.md` records what was said about the role, by whom, what's still unknown, and the questions to ask, dealbreakers first.

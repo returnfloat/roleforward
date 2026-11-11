@@ -118,8 +118,8 @@ Every live posting can carry one next action in posting.md: `next: YYYY-MM-DD | 
   | `offer` | The deadline to answer the offer |
   | an ending | Clear it |
 
-- **A posting with no next action** is fine while it's moving. A shortlisted or interested posting left 7 days without one shows in Needs Attention as waiting on the user's decision, and an application quiet for 21 days shows unless a future `next` says the user is waiting on purpose.
-- **What's waiting on the user:** `node <tools>/next.mjs list` prints one line per live posting: overdue first, then due soon, then later, then the ones with no next action, each with how long it has been in its stage.
+- **A posting with no next action set** shows the usual one for its stage, marked "(suggested)", in the sheet's Next column, the tracker's table, and `next.mjs list`: decide within 7 days of being shortlisted, apply or pass within 7 days of interested, check back 7 days into a conversation or after an interview stage, follow up 14 days after applying, and answer an offer within 7 days. A suggestion is display only. It isn't saved in posting.md and never counts as waiting on purpose, so set a real one when the user's plan differs. A shortlisted or interested posting left 7 days without one shows in Needs Attention as waiting on the user's decision, and an application quiet for 21 days shows unless a future `next` says the user is waiting on purpose.
+- **What's waiting on the user:** `node <tools>/next.mjs list` prints one line per live posting: overdue first, then due soon, then later, then the ones with none set (with the suggestion), each with how long it has been in its stage.
 - **Follow-up messages** (a thank-you note, a check-in, a nudge to a quiet recruiter) are drafted only when the user asks, for the user to send themselves. The plugin never contacts anyone.
 - **An ended posting's `next` is ignored everywhere,** so an ending logged from the scout or the sheet never leaves an open item behind. Clearing it anyway keeps the file tidy.
 

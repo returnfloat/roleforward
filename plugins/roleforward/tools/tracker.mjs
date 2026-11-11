@@ -16,7 +16,7 @@ import { readCsv, toCsv } from './csv.mjs';
 import { loadWorkspace, relPath } from './workspace.mjs';
 import { visaOn, deadlineLine } from './visa.mjs';
 import { readDirection, rankCompare, dealbreakerOf } from './fit.mjs';
-import { PIPELINE, ENDINGS, BEFORE_APPLYING, SOON_DAYS, DECIDE_DAYS, STALE_DAYS, eventsOf, nextOf, daysBetween } from './records.mjs';
+import { PIPELINE, ENDINGS, BEFORE_APPLYING, SOON_DAYS, DECIDE_DAYS, STALE_DAYS, eventsOf, nextOf, nextCell, daysBetween } from './records.mjs';
 
 const { root, get } = loadWorkspace();
 // Company research scores the maturity of the function the user works in (security, nursing, finance...).
@@ -183,7 +183,7 @@ ${dropCounts.length ? md(['Dealbreaker or setting', 'Dropped'], dropCounts) : 'N
 ## All Postings
 
 ${md(['Company', 'Role', 'Track', 'Resume', 'Referral', 'Status', 'Applied', 'Last update', 'Next', 'Role fit', 'Preference fit', 'Posting'],
-  rows.map((r) => [r.company, r.role, r.track, r.resume, r.referral, r.status, r.applied, r.last_event, r.next_date ? `${r.next_date}: ${r.next_action}` : '',
+  rows.map((r) => [r.company, r.role, r.track, r.resume, r.referral, r.status, r.applied, r.last_event, r.archived ? '' : nextCell(r, ': '),
     r.role_fit ? `${r.role_fit}/5` : '', r.preference_fit !== '' ? `${r.preference_fit}/5` : '', r.archived ? `archived ${r.archived}` : `[record](${r.id}/posting.md)`]))}
 `;
 writeFileSync(join(apps, 'tracker.md'), out);

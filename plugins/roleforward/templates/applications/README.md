@@ -65,7 +65,7 @@ next: 2026-10-19 | Check back if the recruiter is still quiet   # optional: "YYY
 updated: 2026-10-12
 ```
 
-`next` is the posting's next action: the date is when to act or check back, and the text says what happens then, for example `2026-11-14 | Reply to the recruiter about the phone screen`. Set and clear it with the plugin's `tools/next.mjs`, which changes only that line and `updated`. It belongs to live postings: once a posting ends, any `next` left on it is ignored.
+`next` is the posting's next action: the date is when to act or check back, and the text says what happens then, for example `2026-11-14 | Reply to the recruiter about the phone screen`. Set and clear it with the plugin's `tools/next.mjs`, which changes only that line and `updated`. A live posting with no `next` set shows the usual next step for its stage instead, marked "(suggested)", wherever next actions are shown. It belongs to live postings: once a posting ends, any `next` left on it is ignored.
 
 The plugin's `tools/freeze.mjs` adds `frozen:` and `frozen_files:` (sha256 hashes) when the application is submitted. Don't edit those by hand.
 

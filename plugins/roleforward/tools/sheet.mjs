@@ -61,7 +61,7 @@ import { createHash } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { readCsv, writeCsv } from './csv.mjs';
 import { readFrontmatter, appendEvent, setLastEventNote, parseEvent } from './frontmatter.mjs';
-import { LIVE, ENDED } from './records.mjs';
+import { LIVE, ENDED, nextCell } from './records.mjs';
 import { loadWorkspace, palette } from './workspace.mjs';
 import { cell as contactsCell, freshness, norm } from './connections.mjs';
 import { readWatchlist, writeWatchlist, find, statusOf } from './watchlist.mjs';
@@ -88,6 +88,7 @@ export const TABS = {
   // Referral stays blank while a posting is only shortlisted: it's asked when the user marks it interested.
   // Role fit and Preference fit are the two scores from fit.mjs, never blended. Rows sort by the lower of the two first.
   // Next is the posting's next action (date and what happens), for display: it's set in the workspace with next.mjs.
+  // A posting with none set shows the usual next step for its stage, marked (suggested).
   shortlist: { id: 0, title: 'Shortlist', headers: ['Company', 'Role', 'Status', 'Role fit', 'Preference fit', 'Last event', 'Next', 'Applied', 'Track', 'Resume', 'Source', 'Referral', "Why it's here", 'Contacts', 'Posting', 'Record ID'],
     widths: [240, 220, 140, 80, 100, 100, 260, 100, 100, 120, 150, 80, 420, 300, 120, 200], center: [2, 3, 4, 5, 7, 11], wrap: [1, 6, 12, 13], status: 2, scores: [3, 4], muted: [15], next: 6 },
   scoutlog: { id: 4, title: 'Scout Log', headers: ['Company', 'Role', 'Location', 'Posted', 'First seen', 'Last seen', 'Scout call', 'Reason', 'Posting'],
@@ -162,7 +163,7 @@ function rows(tab) {
   if (tab === 'shortlist') {
     return apps.filter((r) => LIVE.includes(r.status))
       .sort(rankCompare)
-      .map((r) => [r.company, roleCell(r), r.status, num(r.role_fit), num(r.preference_fit), text(r.last_event), r.next_date ? `${r.next_date} · ${r.next_action}` : '', text(r.applied), r.track, r.resume, r.source, r.status === 'shortlisted' ? '' : r.referral, r.why, contactsCell(r.company), link(r.posting), r.id]);
+      .map((r) => [r.company, roleCell(r), r.status, num(r.role_fit), num(r.preference_fit), text(r.last_event), nextCell(r, ' · '), text(r.applied), r.track, r.resume, r.source, r.status === 'shortlisted' ? '' : r.referral, r.why, contactsCell(r.company), link(r.posting), r.id]);
   }
   if (tab === 'scoutlog') {
     // A rolling window: postings first seen in the last LOG_DAYS days. Older ones drop off at the next sync.
