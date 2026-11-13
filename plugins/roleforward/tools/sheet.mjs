@@ -38,8 +38,15 @@
 //                                                     A2) and saves each Reason the user typed as the note on that posting's
 //                                                     ending event
 //   node <plugin>/tools/sheet.mjs changed [--all] [tab...]
-//                                                     which tabs differ from what the last sync wrote, so a sync clears, writes,
-//                                                     and reads back only those. --all, or naming tabs, counts them as changed
+//                                                     which tabs differ from what the last sync wrote, and for each one whether
+//                                                     to patch only its changed cells or clear, write, and read back the whole
+//                                                     tab. --all, or naming tabs, counts them as changed and rewrites them
+//   node <plugin>/tools/sheet.mjs patch <values.json>...
+//                                                     the cells to write for each tab changed planned to patch, as JSON (clear,
+//                                                     write, readback with the values to expect, dropdown, and rewrite), from
+//                                                     the sheet's check columns: the files the pulls read, plus a read of the
+//                                                     check range changed names for each other tab. A tab whose rows aren't in
+//                                                     the order the last sync wrote them is listed to rewrite instead
 //   node <plugin>/tools/sheet.mjs synced              records what this sync wrote (data/sheet-sync.json), after the read-back.
 //                                                     The pulls count a cell as the user's edit only when it differs from that
 //                                                     record, so a change made in the workspace since the last sync isn't undone
@@ -224,14 +231,18 @@ const readGrid = (file) => { const v = JSON.parse(readFileSync(file, 'utf8')); r
 // (the whole tab: from A1 on the Shortlist, header row included, and from A2 on the others). Each cell lands in its own
 // column, so the pulls read the narrow ranges and a whole tab alike. A column a pull needs that no file covers stops it,
 // so a missing range can never pass for empty cells, and values from another tab are refused.
-function readTab(files, key) {
-  const t = TABS[key], p = PULLS[key], width = t.headers.length, covered = new Set(), grid = [];
+const flatParts = (v) => (Array.isArray(v) ? (v.length && v.every((x) => x && typeof x === 'object' && !Array.isArray(x)) ? v.flatMap(flatParts) : [{ values: v }])
+  : v?.valueRanges ? v.valueRanges.flatMap(flatParts) : [v ?? {}]);
+// A range's tab name, or null for a bare grid.
+const tabOfRange = (range) => { const m = String(range ?? '').match(/^(?:'((?:[^']|'')+)'|([^!']+))!/); return m ? (m[1] ?? m[2]).replace(/''/g, "'") : null; };
+// parts: [file, part] pairs already read (patch hands each tab its own), in place of files.
+function readTab(files, key, p = PULLS[key], parts = null) {
+  const t = TABS[key], width = t.headers.length, covered = new Set(), grid = [];
   let header = null;
   const stop = (msg) => { console.error(`${msg} Nothing was written.`); process.exit(1); };
-  if (!files.length) stop(`Name the file(s) holding the ${t.title} tab's values (sheet.mjs ranges lists what to read).`);
-  const flat = (v) => (Array.isArray(v) ? (v.length && v.every((x) => x && typeof x === 'object' && !Array.isArray(x)) ? v.flatMap(flat) : [{ values: v }])
-    : v?.valueRanges ? v.valueRanges.flatMap(flat) : [v ?? {}]);
-  for (const file of files) for (const part of flat(JSON.parse(readFileSync(file, 'utf8')))) {
+  if (!parts && !files.length) stop(`Name the file(s) holding the ${t.title} tab's values (sheet.mjs ranges lists what to read).`);
+  const all = parts ?? files.flatMap((file) => flatParts(JSON.parse(readFileSync(file, 'utf8'))).map((part) => [file, part]));
+  for (const [file, part] of all) {
     let c0 = 0, c1 = width - 1, r0 = p.header ? 1 : 2, r1 = R;
     if (part.range) {
       const m = String(part.range).match(/^(?:'((?:[^']|'')+)'|([^!']+))!([A-Z]+)(\d+)?(?::([A-Z]+)(\d+)?)?$/i);
@@ -249,7 +260,7 @@ function readTab(files, key) {
     if (r0 === 1 && !(part.values ?? []).length) header ??= [];
   }
   const missing = p.cols.filter((c) => !covered.has(c));
-  if (missing.length) stop(`No values for ${missing.map((c) => `column ${col(c)} (${t.headers[c]})`).join(', ')} of the ${t.title} tab. Read every range sheet.mjs ranges ${key} prints.`);
+  if (missing.length) stop(`No values for ${missing.map((c) => `column ${col(c)} (${t.headers[c]})`).join(', ')} of the ${t.title} tab. Read every range ${p.hint ?? `sheet.mjs ranges ${key} prints`}.`);
   const fill = (r) => Array.from({ length: width }, (_, i) => r?.[i] ?? '');
   return { header: header && fill(header), rows: Array.from({ length: grid.length }, (_, i) => fill(grid[i])) };
 }
@@ -299,30 +310,128 @@ function checkRead(key, n, problems) {
   if (problems.length || (wrote !== undefined && wrote !== n)) markPending([key]);
 }
 
-// Which tabs to clear, write, and read back. A tab counts as changed when there's no record yet, when the record was made
-// for an earlier layout or another sheet, when the last sync set out to rewrite it and never confirmed it, when it's
-// named (or --all), or when its rows differ from the record. Rows are compared as written, so a rolling window that drops
-// a row because the date moved counts too. The changed tabs are recorded as pending until synced confirms them.
+// ---- Patching only the cells that changed ----
+// The record keeps each tab's rows as the sheet last confirmed them (written), so a sync can send only the cells that
+// differ instead of the whole tab. A patch writes by position, so it goes ahead only when the sheet's rows are still in
+// the order the last sync wrote them: each tab's check columns (the Record ID, the company, or the row's labels) are
+// read first and compared. A sort in the sheet, or rows added or removed by hand, falls back to a rewrite.
+const CHECK = { shortlist: [TABS.shortlist.headers.length - 1], history: [TABS.history.headers.length - 1], employers: [0], scoutlog: [0, 1, 2], stats: [0, 1] };
+// The tabs whose check columns the pulls already read, so a patch reuses those files and costs no extra read.
+const PULLED = ['shortlist', 'history', 'employers'];
+const checkRanges = (key) => { const cs = CHECK[key], t = TABS[key]; return [a1(t, cs[0], cs.at(-1), 2, R)]; };
+// A cell as the sheet shows it: dates without their apostrophe, a link as its label, numbers as text.
+const shown = (v) => { if (typeof v === 'number') return String(v); const s = String(v ?? ''); const m = s.match(/^=HYPERLINK\(".*","(.*)"\)$/); return m ? m[1].replace(/""/g, '"') : s.replace(/^'/, ''); };
+// What a cell costs to move through the connector, in characters: its text, quoting, and a comma. Each call (a write or
+// a read, with its reply) costs about OVERHEAD more. A rewrite prints the rows, sends them, and reads them back; so does a
+// patch, for its cells only.
+const OVERHEAD = 300;
+const cost = (v) => String(v ?? '').length + 3;
+const boxCost = (rs, b) => { let s = 0; for (let r = b.r0; r <= b.r1; r++) for (let c = b.c0; c <= b.c1; c++) s += cost(rs[r]?.[c]); return 3 * s + 2 * OVERHEAD; };
+// The blocks of cells to write: runs of rows with a change, each spanning the columns that changed in it, merged with the
+// next block when one write is cheaper than two. Rows past the new end are cleared, not written.
+function diffBlocks(old, cur) {
+  const groups = [];
+  let count = 0;
+  for (let r = 0; r < cur.length; r++) {
+    const cs = cur[r].map((v, c) => (JSON.stringify(v) === JSON.stringify(old[r]?.[c] ?? '') ? -1 : c)).filter((c) => c >= 0);
+    if (!cs.length) continue;
+    count += cs.length;
+    const last = groups.at(-1), b = { r0: r, r1: r, c0: Math.min(...cs), c1: Math.max(...cs) };
+    if (last && last.r1 === r - 1) Object.assign(last, { r1: r, c0: Math.min(last.c0, b.c0), c1: Math.max(last.c1, b.c1) });
+    else groups.push(b);
+  }
+  const blocks = [];
+  for (const g of groups) {
+    const last = blocks.at(-1), m = last && { r0: last.r0, r1: g.r1, c0: Math.min(last.c0, g.c0), c1: Math.max(last.c1, g.c1) };
+    if (m && boxCost(cur, m) < boxCost(cur, last) + boxCost(cur, g)) blocks[blocks.length - 1] = m;
+    else blocks.push(g);
+  }
+  return { blocks, cells: count, tail: old.length > cur.length ? { r0: cur.length, r1: old.length - 1 } : null };
+}
+// Patch or rewrite: a patch only when the record holds the rows the sheet shows, there's something left to write, and the
+// patch costs less than rewriting the tab (a moved row near the top changes every row below it).
+function planTab(key, rec, rs, why) {
+  if (!rec?.written || !rs.length || !rec.written.length || !['rows changed', 'count'].includes(why)) return { mode: 'rewrite' };
+  const d = diffBlocks(rec.written, rs), t = TABS[key];
+  let patch = d.blocks.reduce((s, b) => s + boxCost(rs, b), 0) + (d.tail ? OVERHEAD : 0);
+  if (!PULLED.includes(key)) patch += OVERHEAD + rec.written.reduce((s, r) => s + CHECK[key].reduce((x, c) => x + cost(r[c]), 0), 0);
+  const all = { r0: 0, r1: rs.length - 1, c0: 0, c1: t.headers.length - 1 };
+  return patch < boxCost(rs, all) + OVERHEAD ? { mode: 'patch', ...d } : { mode: 'rewrite' };
+}
+
+// Which tabs to patch, or clear, write, and read back. A tab counts as changed when there's no record yet, when the record
+// was made for an earlier layout or another sheet, when the last sync set out to write it and never confirmed it, when
+// it's named (or --all), or when its rows differ from the record. Rows are compared as written, so a rolling window that
+// drops a row because the date moved counts too. Only a tab whose rows simply differ can be patched: the others are
+// rewritten. The changed tabs are recorded as pending until synced confirms them, and the plan for patch to follow.
 function changed(all, named) {
   const snap = snapshot(), id = String(get('sheet.spreadsheet_id', '') || '');
   for (const k of named) if (!GENERATED.includes(tabKey(k))) throw new Error(`changed: unknown tab "${k}" (${GENERATED.join(', ')})`);
   const whyAll = !snap || (!snap.tabs && !snap.at) ? 'no sync recorded yet' : !snap.tabs || snap.layout !== LAYOUT ? 'the last sync was recorded for an earlier layout'
     : snap.sheet && id && snap.sheet !== id ? 'the last sync was recorded for another sheet' : '';
-  const pending = {}, out = [], dropdowns = [], n = (k) => `${k} row${k === 1 ? '' : 's'}`;
+  const pending = {}, plan = {}, out = [], dropdowns = [], checks = [], n = (k) => `${k} row${k === 1 ? '' : 's'}`, s = (k) => (k === 1 ? '' : 's');
   for (const key of GENERATED) {
     const t = TABS[key], rs = rows(key), h = digest(key, rs), rec = snap?.tabs?.[key];
-    const why = whyAll || (all || named.map(tabKey).includes(key) ? 'asked for' : snap.pending?.[key] === 'rewrite' ? 'out of step with the workspace' : snap.pending?.[key] ? "the last sync that set out to rewrite it didn't confirm it"
-      : rec?.hash !== h ? (rec && rec.rows !== rs.length ? `${n(rec.rows)} then, ${rs.length} now` : 'rows changed') : '');
+    const count = rec && rec.rows !== rs.length;
+    const why = whyAll || (all || named.map(tabKey).includes(key) ? 'asked for' : snap.pending?.[key] === 'rewrite' ? 'out of step with the workspace' : snap.pending?.[key] ? "the last sync that set out to write it didn't confirm it"
+      : rec?.hash !== h ? (count ? `${n(rec.rows)} then, ${rs.length} now` : 'rows changed') : '');
     if (!why) { out.push(`${t.title.padEnd(10)} unchanged (${n(rs.length)})`); continue; }
     pending[key] = h;
+    const p = planTab(key, rec, rs, why === 'rows changed' ? why : count && why.endsWith(' now') ? 'count' : why);
+    plan[key] = p.mode;
+    if (p.mode === 'patch') {
+      const ranges = p.blocks.length;
+      if (!PULLED.includes(key)) checks.push(...checkRanges(key));
+      out.push(`${t.title.padEnd(10)} changed (${why}): patch ${p.cells} cell${s(p.cells)} in ${ranges} range${s(ranges)}${p.tail ? `, clear ${n(p.tail.r1 - p.tail.r0 + 1)} at the end` : ''}`
+        + (PULLED.includes(key) ? '' : `, after checking the row order with ${checkRanges(key)[0]}`));
+      continue;
+    }
     if (key === 'shortlist' || key === 'employers') dropdowns.push(key);
     out.push(`${t.title.padEnd(10)} changed (${why}): clear ${dataRange(t)}, ${rs.length ? `write ${n(rs.length)} at ${a1(t, 0, 0, 2, 2).replace(/:.*/, '')}` : 'nothing to write'}${rs.length ? `, read back ${dataRange(t, rs.length)}` : ''}`);
   }
-  saveSnapshot({ ...(snap ?? {}), pending });
+  saveSnapshot({ ...(snap ?? {}), pending, plan });
   for (const l of out) console.log(l);
-  const tabs = Object.keys(pending).length;
-  console.log(!tabs ? 'Nothing changed since the last sync: nothing to clear, write, or read back.'
-    : `${tabs} tab${tabs === 1 ? '' : 's'} to rewrite.${dropdowns.length ? ` Then send sheet.mjs dropdown ${dropdowns.join(' ')}.` : ' No dropdowns to reset.'} Run sheet.mjs synced once the read-back matches.`);
+  const rewrites = Object.values(plan).filter((m) => m === 'rewrite').length, patches = Object.values(plan).length - rewrites;
+  if (!rewrites && !patches) return console.log('Nothing changed since the last sync: nothing to clear, write, or read back.');
+  const lines = [];
+  if (patches) lines.push(`${patches} tab${s(patches)} to patch: run sheet.mjs patch with the files the pulls just read${checks.length ? ` and a read of ${checks.join(' and ')}` : ''}, and send what it prints.`);
+  if (rewrites) lines.push(`${rewrites} tab${s(rewrites)} to rewrite.${dropdowns.length ? ` Then send sheet.mjs dropdown ${dropdowns.join(' ')}.` : ' No dropdowns to reset.'}`);
+  console.log(`${lines.join(' ')} Run sheet.mjs synced once the read-back matches.`);
+}
+
+// The patch for each tab changed planned, from the sheet's check columns (the pulls' files, and a read of each other
+// patched tab's check range). JSON for the skill to send: clear (ranges for batch_clear_values), write (one update_values
+// each), readback (one get_values each, with the values to expect as the sheet shows them; trailing empty cells come back
+// missing), dropdown (the tabs to send sheet.mjs dropdown for, because their row count changed), and rewrite (tabs whose
+// rows were reordered in the sheet, to clear, write in full, and read back instead).
+function patch(files) {
+  const snap = snapshot(), plan = snap?.plan ?? {}, out = { clear: [], write: [], readback: [], dropdown: [], rewrite: [] };
+  const keys = GENERATED.filter((k) => plan[k] === 'patch');
+  if (!keys.length) { console.error('Nothing to patch: run sheet.mjs changed first, and rewrite the tabs it lists.'); process.exit(1); }
+  const parts = files.flatMap((file) => flatParts(JSON.parse(readFileSync(file, 'utf8'))).map((part) => [file, part]));
+  for (const key of keys) {
+    const t = TABS[key], old = snap.tabs[key].written, rs = rows(key);
+    const mine = parts.filter(([, part]) => tabOfRange(part.range) === t.title);
+    const hint = `${checkRanges(key)[0]}${PULLED.includes(key) ? ` (the ${t.title} pull reads it)` : ''}`;
+    // No file for a tab stops here, naming the range to read, so a missing read can never pass for a sheet in order.
+    const sheet = readTab([], key, { cols: CHECK[key], hint }, mine).rows;
+    const inOrder = sheet.length === old.length && old.every((r, i) => CHECK[key].every((c) => shown(r[c]) === String(sheet[i][c] ?? '')));
+    if (!inOrder) {
+      out.rewrite.push({ tab: t.title, why: sheet.length === old.length ? "its rows aren't in the order the last sync wrote them (sorted in the sheet?)" : `it has ${sheet.length} rows, and the last sync wrote ${old.length}`,
+        clear: dataRange(t), write: `sheet.mjs rows ${key} at ${a1(t, 0, 0, 2, 2).replace(/:.*/, '')}`, readback: dataRange(t, rs.length) });
+      if (key === 'shortlist' || key === 'employers') out.dropdown.push(key);
+      continue;
+    }
+    const d = diffBlocks(old, rs);
+    for (const b of d.blocks) {
+      const range = a1(t, b.c0, b.c1, b.r0 + 2, b.r1 + 2), box = rs.slice(b.r0, b.r1 + 1).map((r) => r.slice(b.c0, b.c1 + 1));
+      out.write.push({ range, values: box });
+      out.readback.push({ range, expect: box.map((r) => r.map(shown)) });
+    }
+    if (d.tail) out.clear.push(a1(t, 0, t.headers.length - 1, d.tail.r0 + 2, d.tail.r1 + 2));
+    if (old.length !== rs.length && (key === 'shortlist' || key === 'employers')) out.dropdown.push(key);
+  }
+  console.log(JSON.stringify(out));
 }
 
 function synced() {
@@ -333,7 +442,11 @@ function synced() {
   for (const key of GENERATED) {
     data[key] = rows(key);
     const h = digest(key, data[key]);
-    if (full || (key in pending ? pending[key] === h : tabs[key]?.hash === h)) tabs[key] = { hash: h, rows: data[key].length };
+    // written: the rows as the sheet now holds them, the base the next patch is worked out from. A tab left unchanged
+    // keeps its old copy, since Stats' Updated date can move without the tab being written.
+    if (full || (key in pending ? pending[key] === h : tabs[key]?.hash === h)) {
+      tabs[key] = { hash: h, rows: data[key].length, written: !full && !(key in pending) && tabs[key]?.written ? tabs[key].written : data[key] };
+    }
     // Written from rows that have changed again since: the next sync writes it once more.
     else if (key in pending) still[key] = pending[key];
   }
@@ -667,6 +780,7 @@ else if (['pull', 'pull-history', 'pull-employers'].includes(cmd)) {
 }
 else if (cmd === 'changed') changed(process.argv.includes('--all'), process.argv.slice(3).filter((a) => !a.startsWith('--')));
 else if (cmd === 'synced') synced();
+else if (cmd === 'patch') patch(process.argv.slice(3));
 else if (cmd === 'setup') console.log(JSON.stringify(setup()));
 else if (cmd === 'upgrade') { const i = process.argv.indexOf('--rules'); console.log(JSON.stringify(upgrade(arg, i < 0 ? undefined : process.argv[i + 1]))); }
 else if (cmd === 'prune') prune(arg === '--apply');
@@ -674,4 +788,4 @@ else if (cmd === 'add-tab') console.log(JSON.stringify(addTab(tabKey(arg), flag)
 else if (cmd === 'dropdown') console.log(JSON.stringify(dropdown(process.argv.slice(3))));
 else if (cmd === 'filters') console.log(JSON.stringify(filters(process.argv.slice(3))));
 else if (cmd === 'career-formula') console.log(careerFormula(+arg || 2));
-else console.error('Usage: node <plugin>/tools/sheet.mjs rows <shortlist|scoutlog|history|stats|employers> | headers <tab> | ranges [tab...] [--full] | pull <values.json>... [--apply] | pull-employers <values.json>... [--apply] [--force] | pull-history <values.json>... [--apply] | changed [--all] [tab...] | synced | upgrade <header.json> [--rules <n>] | prune [--apply] | dropdown [tab...] | filters [tab...] | setup | add-tab <tab> [index] | career-formula <row>');
+else console.error('Usage: node <plugin>/tools/sheet.mjs rows <shortlist|scoutlog|history|stats|employers> | headers <tab> | ranges [tab...] [--full] | pull <values.json>... [--apply] | pull-employers <values.json>... [--apply] [--force] | pull-history <values.json>... [--apply] | changed [--all] [tab...] | patch <values.json>... | synced | upgrade <header.json> [--rules <n>] | prune [--apply] | dropdown [tab...] | filters [tab...] | setup | add-tab <tab> [index] | career-formula <row>');

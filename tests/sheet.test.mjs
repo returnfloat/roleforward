@@ -302,8 +302,8 @@ test('changed: every tab with no sync recorded yet, then only the tabs whose row
     ws.run('next', ['set', ws.folder('employer-a'), daysAgo(-3), 'Decide on it']);
     const out = ws.run('sheet', ['changed']);
     assert.deepEqual(Object.entries(tabsOf(out)).filter(([, c]) => c).map(([t]) => t), ['Shortlist']);
-    assert.match(out, /^Shortlist  changed \(rows changed\)/m);
-    assert.match(out, /Then send sheet\.mjs dropdown shortlist\./);
+    assert.match(out, /^Shortlist  changed \(rows changed\): patch 1 cell in 1 range$/m, 'only the Next cell moved');
+    assert.match(out, /1 tab to patch: run sheet\.mjs patch with the files the pulls just read, and send what it prints\./);
   } finally { ws.cleanup(); }
 });
 
@@ -329,7 +329,7 @@ test('changed: a sync that never confirmed its writes, a record from an earlier 
     ws.run('next', ['set', ws.folder('employer-a'), daysAgo(-3), 'Decide on it']);
     ws.run('sheet', ['changed']);
     // The read-back didn't match, so synced was skipped: the Shortlist is still to be written, even if nothing moves.
-    assert.match(ws.run('sheet', ['changed']), /^Shortlist  changed \(the last sync that set out to rewrite it didn't confirm it\)/m);
+    assert.match(ws.run('sheet', ['changed']), /^Shortlist  changed \(the last sync that set out to write it didn't confirm it\)/m);
     ws.run('sheet', ['synced']);
     assert.deepEqual(changedTabs(ws), []);
     // A record made before tabs were tracked (or for other headers) says nothing about these rows.
@@ -394,6 +394,103 @@ test('a pull that skipped rows, or a sheet missing rows the last sync wrote, has
     // A refused employer pull, as from a bad read.
     ws.run('sheet', ['pull-employers', response(ws, 'e.json', 'Employers!A2:C1000', [['Employer A', 'Test Domain One', 'watching']])]);
     assert.deepEqual(changedTabs(ws), ['Employers']);
+  } finally { ws.cleanup(); }
+});
+
+// ---- Patching only the cells that changed ----
+
+const patchOf = (ws, files) => JSON.parse(ws.run('sheet', ['patch', ...files]));
+const stripQuote = (v) => (typeof v === 'number' ? String(v) : String(v).replace(/^'/, ''));
+
+test('patch: one changed cell is one small write and its read-back, with nothing cleared and no dropdown', () => {
+  const ws = fresh();
+  try {
+    syncAll(ws);
+    const before = rows(ws, 'shortlist');
+    ws.run('next', ['set', ws.folder('employer-a'), daysAgo(-3), 'Decide on it']);
+    ws.run('sheet', ['changed']);
+    const p = patchOf(ws, narrowShortlist(ws, before));
+    assert.deepEqual(p.write, [{ range: 'Shortlist!G2:G2', values: [[`${daysAgo(-3)} · Decide on it`]] }]);
+    assert.deepEqual(p.readback, [{ range: 'Shortlist!G2:G2', expect: [[`${daysAgo(-3)} · Decide on it`]] }]);
+    assert.deepEqual([p.clear, p.dropdown, p.rewrite], [[], [], []]);
+    // Once confirmed, the patched rows are the new base, and nothing is left to write.
+    ws.run('sheet', ['synced']);
+    assert.deepEqual(changedTabs(ws), []);
+    assert.deepEqual(JSON.parse(ws.read('applications/data/sheet-sync.json')).tabs.shortlist.written, rows(ws, 'shortlist'));
+  } finally { ws.cleanup(); }
+});
+
+test('patch: rows sorted in the sheet, or a read with rows missing, are rewritten in full instead', () => {
+  const ws = fresh();
+  try {
+    syncAll(ws);
+    const before = rows(ws, 'shortlist');
+    ws.run('next', ['set', ws.folder('employer-a'), daysAgo(-3), 'Decide on it']);
+    ws.run('sheet', ['changed']);
+    const sorted = patchOf(ws, narrowShortlist(ws, [...before].reverse()));
+    assert.deepEqual(sorted.write, [], 'nothing is written by position');
+    assert.deepEqual(sorted.rewrite, [{ tab: 'Shortlist', why: "its rows aren't in the order the last sync wrote them (sorted in the sheet?)",
+      clear: 'Shortlist!A2:P1000', write: 'sheet.mjs rows shortlist at Shortlist!A2', readback: 'Shortlist!A2:P4' }]);
+    assert.deepEqual(sorted.dropdown, ['shortlist']);
+    assert.match(patchOf(ws, narrowShortlist(ws, before.slice(0, 2))).rewrite[0].why, /^it has 2 rows, and the last sync wrote 3$/);
+    // No read of the check column at all stops, naming the range to read.
+    const r = ws.fails('sheet', ['patch']);
+    assert.match(r.out, /No values for column P \(Record ID\) of the Shortlist tab\. Read every range Shortlist!P2:P1000 \(the Shortlist pull reads it\)\./);
+  } finally { ws.cleanup(); }
+});
+
+test('patch: a tab the pulls never read (Stats) is checked with its own read first', () => {
+  const ws = fresh();
+  try {
+    syncAll(ws);
+    const before = rows(ws, 'stats'), stats = JSON.parse(ws.read('applications/data/stats.json'));
+    stats.summary = stats.summary.map(([k, v]) => [k, k === 'Postings tracked' ? v + 1 : v]);
+    ws.write('applications/data/stats.json', JSON.stringify(stats));
+    const out = ws.run('sheet', ['changed']);
+    assert.match(out, /^Stats      changed \(rows changed\): patch 1 cell in 1 range, after checking the row order with Stats!A2:B1000$/m);
+    assert.match(out, /and a read of Stats!A2:B1000, and send what it prints/);
+    assert.match(ws.fails('sheet', ['patch']).out, /Read every range Stats!A2:B1000\./);
+    const p = patchOf(ws, [response(ws, 'st.json', 'Stats!A2:B1000', before.map((r) => r.slice(0, 2).map(stripQuote)))]);
+    const row = before.findIndex((r) => r[1] === 'Postings tracked') + 2;
+    assert.deepEqual(p.write, [{ range: `Stats!C${row}:C${row}`, values: [[5]] }]);
+    assert.deepEqual(p.readback[0].expect, [['5']], 'as the sheet shows it');
+  } finally { ws.cleanup(); }
+});
+
+test('patch: a row that ends clears the last row and resets the dropdown, and most of a tab changing is a rewrite', () => {
+  const ws = fresh();
+  try {
+    syncAll(ws);
+    const sl = rows(ws, 'shortlist'), hist = rows(ws, 'history');
+    assert.equal(sl.at(-1)[0], 'Employer B', 'the last row');
+    ws.run('sheet', ['pull', ...narrowShortlist(ws, sl.map((x) => (x[0] === 'Employer B' ? [x[0], x[1], 'passed', ...x.slice(3)] : x))), '--apply']);
+    ws.run('tracker');
+    const out = ws.run('sheet', ['changed']);
+    assert.match(out, /^Shortlist  changed \(3 rows then, 2 now\): patch 0 cells in 0 ranges, clear 1 row at the end$/m);
+    const p = patchOf(ws, [...narrowShortlist(ws, sl), response(ws, 'hn.json', 'History!N2:N1000', hist.map((r) => [r[13]])),
+      response(ws, 'st.json', 'Stats!A2:B1000', rows(ws, 'stats').map((r) => r.slice(0, 2).map(stripQuote)))]);
+    assert.deepEqual(p.clear, ['Shortlist!A4:P4']);
+    assert.ok(p.dropdown.includes('shortlist'));
+    // History gained a row at the top, which moves every row below it: the patch is one block over both rows, which costs
+    // what a rewrite would, without the clear.
+    assert.match(out, /^History    changed \(1 row then, 2 now\): patch \d+ cells in 1 range$/m);
+    assert.deepEqual(p.write.filter((w) => w.range.startsWith('History')).map((w) => w.range), ['History!A2:N3']);
+  } finally { ws.cleanup(); }
+});
+
+test('patch: nothing planned to patch is refused, and a record from before patching rewrites once', () => {
+  const ws = fresh();
+  try {
+    syncAll(ws);
+    assert.match(ws.fails('sheet', ['patch']).out, /Nothing to patch: run sheet\.mjs changed first/);
+    // A record without the written rows (made by an earlier version) can't be patched from.
+    const rec = JSON.parse(ws.read('applications/data/sheet-sync.json'));
+    for (const t of Object.values(rec.tabs)) delete t.written;
+    ws.write('applications/data/sheet-sync.json', JSON.stringify(rec));
+    ws.run('next', ['set', ws.folder('employer-a'), daysAgo(-3), 'Decide on it']);
+    assert.match(ws.run('sheet', ['changed']), /^Shortlist  changed \(rows changed\): clear Shortlist!A2:P1000/m);
+    ws.run('sheet', ['synced']);
+    assert.ok(Object.values(JSON.parse(ws.read('applications/data/sheet-sync.json')).tabs).every((t) => Array.isArray(t.written)), 'every tab has its rows again');
   } finally { ws.cleanup(); }
 });
 

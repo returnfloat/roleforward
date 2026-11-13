@@ -2,6 +2,10 @@
 
 Every RoleForward release, newest first. RoleForward follows [semantic versioning](https://semver.org): within a major version, your workspace's settings and files keep working as they are.
 
+## 1.3.2
+
+- **The sheet sync writes only the cells that changed:** the workspace keeps a copy of what each sync wrote, and `sheet.mjs patch` works out the changed cells from it, so a stage change on one posting writes and reads back a few cells instead of the whole tab. A patch first checks that the sheet's rows are still in the order the last sync wrote them, from columns the sync already reads (or one small read for the Scout Log and Stats), and a tab you sorted, or one where rows were added or removed by hand, is rewritten whole instead. The first sync after this update rewrites the tabs that changed, as before, to make that copy.
+
 ## 1.3.1
 
 - **The Next column is never empty:** a live posting with no next action set now shows the usual next step for its stage, marked "(suggested)", in the sheet's Next column, the tracker's table, and `next.mjs list`. For example, a shortlisted posting shows a decision due a week after it was shortlisted, and an application shows a follow-up two weeks after you applied. A suggestion is display only: one you set replaces it, and only a set one quiets the "no update in 21 days" flag.

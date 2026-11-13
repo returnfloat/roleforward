@@ -107,7 +107,7 @@ Every tab can be sorted and filtered from its header row. A sort lasts until the
 
 Edits go both ways safely: each sync records what it wrote, so only a cell you actually changed counts as your edit, and a change made in the workspace since the last sync is never undone by an older value in the sheet.
 
-A routine sync is small: it reads only the columns you can edit and rewrites only the tabs that changed, so when nothing changed it writes nothing. A hand edit anywhere else is overwritten the next time that tab is rewritten. Ask Claude to check the sheet to compare every cell with your workspace first.
+A routine sync is small: it reads only the columns you can edit and writes only the cells that changed, so a stage change on one posting is a few cells, and when nothing changed it writes nothing. A tab you sorted, or one where most rows moved, is rewritten whole instead. A hand edit anywhere else is overwritten the next time that cell is written. Ask Claude to check the sheet to compare every cell with your workspace first.
 
 The two windows are settings in `workspace.yaml`: `scout_log_days` (14) for the Scout Log, and `history_days` (30) for History. When a posting you never applied to leaves History, its folder is removed from your workspace too, so files don't pile up, and one line in an archive file keeps it in your stats. The scout keeps one line per posting it has screened, so it never shows you the same posting twice.
 
